@@ -1,0 +1,21 @@
+[package]
+name = "gilfoyle-systemd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Gilfoyle driven adapter that controls systemd over in-process D-Bus."
+
+[lints]
+workspace = true
+
+[dependencies]
+gilfoyle-core = { workspace = true }
+async-trait = { workspace = true }
+futures-util = { workspace = true }
+tokio = { workspace = true }
+zbus = { version = "6", default-features = false, features = ["tokio"] }
+zbus_systemd = { workspace = true }
+
+[dev-dependencies]
+zbus = { version = "6", default-features = false, features = ["tokio", "p2p", "service", "proxy"] }

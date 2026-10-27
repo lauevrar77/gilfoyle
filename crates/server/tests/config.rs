@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 
 use gilfoyle_server::auth::TokenEntry;
 use gilfoyle_server::config::{
-    ConfigError, DEFAULT_BIND, DEFAULT_LOG_LEVEL, RawConfig, RawToken, RawTools, parse_bind,
-    resolve_config,
+    ConfigError, DEFAULT_BIND, DEFAULT_LOG_LEVEL, RawConfig, RawSystemd, RawToken, RawTools,
+    parse_bind, resolve_config,
 };
 use gilfoyle_server::hash::{sha256, to_hex};
 
@@ -258,6 +258,45 @@ fn tools_allowlist_is_resolved() {
     let mut expected = BTreeSet::new();
     expected.insert("get_uptime".to_string());
     assert_eq!(config.enabled_tools, Some(expected));
+}
+
+#[test]
+fn resolves_manage_units_with_normalisation() {
+    let raw = RawConfig {
+        systemd: RawSystemd {
+            manage_units: vec!["nginx".to_string(), "sshd.socket".to_string()],
+        },
+        tokens: vec![token("admin")],
+        ..RawConfig::default()
+    };
+    let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
+    let names: Vec<&str> = config.allowlist.names().collect();
+    assert_eq!(names, vec!["nginx.service", "sshd.socket"]);
+}
+
+#[test]
+fn rejects_an_invalid_managed_unit() {
+    let raw = RawConfig {
+        systemd: RawSystemd {
+            manage_units: vec!["foo.bar".to_string()],
+        },
+        tokens: vec![token("admin")],
+        ..RawConfig::default()
+    };
+    assert_eq!(
+        resolve(raw, &env_from(&[]), &no_files()).unwrap_err(),
+        ConfigError::InvalidManagedUnit("foo.bar".to_string())
+    );
+}
+
+#[test]
+fn empty_manage_units_means_no_managed_units() {
+    let raw = RawConfig {
+        tokens: vec![token("admin")],
+        ..RawConfig::default()
+    };
+    let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
+    assert!(config.allowlist.is_empty());
 }
 
 #[test]

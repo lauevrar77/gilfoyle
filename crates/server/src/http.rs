@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use axum::{Json, Router, middleware, routing::get};
-use gilfoyle_core::SystemAdmin;
+use gilfoyle_core::{SystemAdmin, SystemdAdmin};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
@@ -19,8 +19,10 @@ pub const MAX_BODY_BYTES: usize = 64 * 1024;
 /// Everything the router needs to serve requests.
 #[derive(Clone)]
 pub struct AppState {
-    /// The driving port (host administration use cases).
+    /// The uptime driving port.
     pub admin: Arc<dyn SystemAdmin>,
+    /// The systemd driving port.
+    pub systemd: Arc<dyn SystemdAdmin>,
     /// Authentication state.
     pub auth: AuthState,
     /// Host header allowlist for the MCP transport.
@@ -36,7 +38,11 @@ pub struct AppState {
 /// `/healthz` is public and secret-free; `/mcp` is wrapped in the bearer
 /// middleware. Requests to unknown paths fall through to a 404.
 pub fn build_router(state: AppState) -> Router {
-    let server = GilfoyleServer::new(state.admin.clone(), state.enabled_tools.clone());
+    let server = GilfoyleServer::new(
+        state.admin.clone(),
+        state.systemd.clone(),
+        state.enabled_tools.clone(),
+    );
 
     let mut config = StreamableHttpServerConfig::default();
     if !state.allowed_hosts.is_empty() {

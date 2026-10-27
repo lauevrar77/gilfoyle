@@ -10,3 +10,4 @@ pub mod config;
 pub mod hash;
 pub mod http;
 pub mod mcp;
+pub mod polkit;

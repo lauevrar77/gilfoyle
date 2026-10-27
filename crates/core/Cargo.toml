@@ -13,3 +13,9 @@ workspace = true
 serde = { workspace = true }
 schemars = { workspace = true }
 thiserror = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+async-trait = { workspace = true }
+tokio = { workspace = true }

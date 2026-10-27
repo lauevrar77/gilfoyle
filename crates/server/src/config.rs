@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::path::Path;
 
+use gilfoyle_core::{Allowlist, UnitName};
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -49,6 +50,9 @@ pub enum ConfigError {
         "token `{0}` has no secret: set GILFOYLE_TOKEN_<ID>, add a hash file, or set sha256 inline"
     )]
     MissingSecret(String),
+    /// A `[systemd] manage_units` entry was not a valid unit name.
+    #[error("invalid unit in [systemd] manage_units: {0}")]
+    InvalidManagedUnit(String),
 }
 
 /// Raw TOML shape, all fields optional so a partial or absent file is valid.
@@ -76,9 +80,21 @@ pub struct RawConfig {
     /// Tool exposure settings.
     #[serde(default)]
     pub tools: RawTools,
+    /// systemd settings.
+    #[serde(default)]
+    pub systemd: RawSystemd,
     /// Configured tokens.
     #[serde(default)]
     pub tokens: Vec<RawToken>,
+}
+
+/// Raw `[systemd]` section.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawSystemd {
+    /// Units that may be started or stopped. Empty means none may.
+    #[serde(default)]
+    pub manage_units: Vec<String>,
 }
 
 /// Raw `[tools]` section.
@@ -116,6 +132,8 @@ pub struct Config {
     pub log_level: String,
     /// Enabled tool allowlist; `None` means all compiled tools.
     pub enabled_tools: Option<BTreeSet<String>>,
+    /// Units that may be started or stopped.
+    pub allowlist: Allowlist,
     /// Resolved token entries.
     pub tokens: Vec<TokenEntry>,
 }
@@ -152,6 +170,7 @@ pub fn resolve_config(
         .token_dir
         .unwrap_or_else(|| DEFAULT_TOKEN_DIR.to_string());
     let tokens = resolve_tokens(&raw.tokens, env, read_file, Path::new(&token_dir))?;
+    let allowlist = resolve_allowlist(&raw.systemd.manage_units)?;
 
     Ok(Config {
         bind,
@@ -160,8 +179,20 @@ pub fn resolve_config(
         allowed_origins: raw.allowed_origins,
         log_level,
         enabled_tools: raw.tools.enabled.map(|ids| ids.into_iter().collect()),
+        allowlist,
         tokens,
     })
+}
+
+/// Normalise the managed-unit allowlist. Invalid names fail the load (fail-closed).
+pub fn resolve_allowlist(units: &[String]) -> Result<Allowlist, ConfigError> {
+    let mut names = BTreeSet::new();
+    for unit in units {
+        let name =
+            UnitName::parse(unit).map_err(|_| ConfigError::InvalidManagedUnit(unit.clone()))?;
+        names.insert(name.as_str().to_string());
+    }
+    Ok(Allowlist::new(names))
 }
 
 fn resolve_tokens(

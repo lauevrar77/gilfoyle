@@ -1,7 +1,7 @@
 //! Gilfoyle composition root.
 //!
 //! This file only wires adapters together; it contains no logic worth mutating
-//! and is excluded from mutation testing (see `mutants.toml`).
+//! and is excluded from mutation testing (see `.cargo/mutants.toml`).
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -9,12 +9,17 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
-use gilfoyle_core::{SystemAdmin, SystemService};
+use gilfoyle_core::{
+    Allowlist, ServiceCatalog, ServiceControl, SystemAdmin, SystemService, SystemdAdmin,
+    SystemdService,
+};
 use gilfoyle_server::auth::{AuthState, TokenStore};
-use gilfoyle_server::config::{DEFAULT_CONFIG_PATH, RawConfig, resolve_config};
+use gilfoyle_server::config::{DEFAULT_CONFIG_PATH, RawConfig, resolve_allowlist, resolve_config};
 use gilfoyle_server::hash::hash_token_hex;
 use gilfoyle_server::http::{AppState, build_router};
+use gilfoyle_server::polkit::{POLKIT_RULE_PATH, render_polkit_rule};
 use gilfoyle_system::ProcUptime;
+use gilfoyle_systemd::LazySystemd;
 
 #[derive(Parser)]
 #[command(
@@ -35,6 +40,17 @@ struct Cli {
 enum Command {
     /// Print the SHA-256 (hex) of a token read from stdin.
     HashToken,
+    /// systemd administration helpers.
+    Systemd {
+        #[command(subcommand)]
+        command: SystemdCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum SystemdCommand {
+    /// Print the polkit rule derived from [systemd] manage_units.
+    PolkitRule,
 }
 
 #[tokio::main]
@@ -42,13 +58,20 @@ async fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Some(Command::HashToken) => hash_token_command(),
-        None => match run(&cli.config).await {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(message) => {
-                eprintln!("gilfoyle: {message}");
-                ExitCode::FAILURE
-            }
-        },
+        Some(Command::Systemd {
+            command: SystemdCommand::PolkitRule,
+        }) => report(polkit_rule_command(&cli.config)),
+        None => report(run(&cli.config).await),
+    }
+}
+
+fn report(result: Result<(), String>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => {
+            eprintln!("gilfoyle: {message}");
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -73,6 +96,14 @@ fn hash_token_command() -> ExitCode {
     }
 }
 
+fn polkit_rule_command(config_path: &Path) -> Result<(), String> {
+    let raw = load_raw(config_path)?;
+    let allowlist =
+        resolve_allowlist(&raw.systemd.manage_units).map_err(|error| error.to_string())?;
+    print!("{}", render_polkit_rule(&allowlist));
+    Ok(())
+}
+
 async fn run(config_path: &Path) -> Result<(), String> {
     let raw = load_raw(config_path)?;
     let config = resolve_config(raw, &|key| std::env::var(key).ok(), &|path| {
@@ -81,10 +112,21 @@ async fn run(config_path: &Path) -> Result<(), String> {
     .map_err(|error| error.to_string())?;
 
     init_tracing(&config.log_level);
+    warn_if_polkit_out_of_sync(&config.allowlist);
 
     let admin: Arc<dyn SystemAdmin> = Arc::new(SystemService::new(ProcUptime::new()));
+    let lazy = Arc::new(LazySystemd::system());
+    let catalog: Arc<dyn ServiceCatalog> = lazy.clone();
+    let control: Arc<dyn ServiceControl> = lazy;
+    let systemd: Arc<dyn SystemdAdmin> = Arc::new(SystemdService::new(
+        catalog,
+        control,
+        config.allowlist.clone(),
+    ));
+
     let state = AppState {
         admin,
+        systemd,
         auth: AuthState::new(Arc::new(TokenStore::new(config.tokens.clone()))),
         allowed_hosts: config.allowed_hosts.clone(),
         allowed_origins: config.allowed_origins.clone(),
@@ -92,6 +134,21 @@ async fn run(config_path: &Path) -> Result<(), String> {
     };
 
     serve(config.bind, state).await
+}
+
+fn warn_if_polkit_out_of_sync(allowlist: &Allowlist) {
+    let expected = render_polkit_rule(allowlist);
+    match std::fs::read_to_string(POLKIT_RULE_PATH) {
+        Ok(installed) if installed == expected => {}
+        Ok(_) => tracing::warn!(
+            path = POLKIT_RULE_PATH,
+            "installed polkit rule differs from [systemd] manage_units; re-run `gilfoyle systemd polkit-rule`"
+        ),
+        Err(_) => tracing::warn!(
+            path = POLKIT_RULE_PATH,
+            "polkit rule not installed; start and stop will be refused by polkit"
+        ),
+    }
 }
 
 fn load_raw(path: &Path) -> Result<RawConfig, String> {

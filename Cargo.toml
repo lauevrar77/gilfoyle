@@ -1,17 +1,18 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/system", "crates/server"]
+members = ["crates/core", "crates/system", "crates/systemd", "crates/server"]
 exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
 gilfoyle-core = { path = "crates/core" }
 gilfoyle-system = { path = "crates/system" }
+gilfoyle-systemd = { path = "crates/systemd" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -23,6 +24,10 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"
+async-trait = "0.1"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+zbus_systemd = { version = "0.26201", default-features = false, features = ["systemd1", "zbus-async-tokio"] }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }

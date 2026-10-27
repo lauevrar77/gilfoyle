@@ -2,7 +2,11 @@ use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use gilfoyle_core::{SystemAdmin, SystemError, SystemService, Uptime, UptimeSource};
+use async_trait::async_trait;
+use gilfoyle_core::{
+    AppError, JobResult, SystemAdmin, SystemError, SystemService, SystemdAdmin, SystemdError, Unit,
+    UnitActionOutcome, UnitFilter, UnitName, UnitStatus, UnitTimestamps, Uptime, UptimeSource,
+};
 use gilfoyle_server::auth::{AuthState, TokenEntry, TokenStore};
 use gilfoyle_server::hash::sha256;
 use gilfoyle_server::http::{AppState, MAX_BODY_BYTES, build_router};
@@ -39,10 +43,104 @@ fn state_full(
     let admin: Arc<dyn SystemAdmin> = Arc::new(SystemService::new(FixedSource(3661.0)));
     AppState {
         admin,
+        systemd: Arc::new(FakeSystemd::default()),
         auth: AuthState::new(Arc::new(TokenStore::new(tokens))),
         allowed_hosts,
         allowed_origins,
         enabled_tools,
+    }
+}
+
+/// A scriptable stand-in for the systemd driving port.
+#[derive(Clone, Default)]
+struct FakeSystemd {
+    units: Vec<Unit>,
+    outcome: Option<UnitActionOutcome>,
+}
+
+impl FakeSystemd {
+    fn with_unit(mut self, name: &str) -> Self {
+        self.units.push(Unit {
+            name: name.to_string(),
+            description: format!("desc {name}"),
+            load_state: "loaded".to_string(),
+            active_state: "active".to_string(),
+            sub_state: "running".to_string(),
+        });
+        self
+    }
+
+    fn with_outcome(mut self, result: &str) -> Self {
+        self.outcome = Some(UnitActionOutcome {
+            unit: "nginx.service".to_string(),
+            job_result: JobResult::new(result),
+            active_state_before: "inactive".to_string(),
+            active_state_after: "active".to_string(),
+        });
+        self
+    }
+}
+
+#[async_trait]
+impl SystemdAdmin for FakeSystemd {
+    async fn list_units(&self, _filter: &UnitFilter) -> Result<Vec<Unit>, AppError> {
+        Ok(self.units.clone())
+    }
+
+    async fn unit_status(&self, name: &str) -> Result<UnitStatus, AppError> {
+        // Mirror the production service, which normalises the name before the adapter.
+        let normalized = UnitName::parse(name).map_err(AppError::Domain)?;
+        match self
+            .units
+            .iter()
+            .find(|unit| unit.name == normalized.as_str())
+        {
+            Some(unit) => Ok(UnitStatus {
+                name: unit.name.clone(),
+                description: unit.description.clone(),
+                load_state: unit.load_state.clone(),
+                active_state: unit.active_state.clone(),
+                sub_state: unit.sub_state.clone(),
+                unit_file_state: Some("enabled".to_string()),
+                can_start: Some(true),
+                can_stop: Some(true),
+                main_pid: Some(7),
+                result: Some("success".to_string()),
+                timestamps: UnitTimestamps {
+                    state_change: None,
+                    active_enter: None,
+                    inactive_enter: None,
+                    exec_main_start: None,
+                    exec_main_exit: None,
+                },
+            }),
+            None => Err(AppError::Systemd(SystemdError::NotFound(
+                normalized.as_str().to_string(),
+            ))),
+        }
+    }
+
+    async fn start_unit(&self, name: &str) -> Result<UnitActionOutcome, AppError> {
+        self.outcome
+            .clone()
+            .ok_or_else(|| AppError::NotManaged(name.to_string()))
+    }
+
+    async fn stop_unit(&self, name: &str) -> Result<UnitActionOutcome, AppError> {
+        self.outcome
+            .clone()
+            .ok_or_else(|| AppError::NotManaged(name.to_string()))
+    }
+}
+
+fn state_with_systemd(systemd: FakeSystemd) -> AppState {
+    AppState {
+        admin: Arc::new(SystemService::new(FixedSource(3661.0))) as Arc<dyn SystemAdmin>,
+        systemd: Arc::new(systemd),
+        auth: AuthState::new(Arc::new(TokenStore::new(vec![entry("admin", "s3cr3t")]))),
+        allowed_hosts: Vec::new(),
+        allowed_origins: Vec::new(),
+        enabled_tools: None,
     }
 }
 
@@ -116,11 +214,15 @@ fn tools_list() -> Value {
 }
 
 fn tools_call(name: &str) -> Value {
+    tools_call_with(name, json!({}))
+}
+
+fn tools_call_with(name: &str, arguments: Value) -> Value {
     json!({
         "jsonrpc": "2.0",
         "id": 3,
         "method": "tools/call",
-        "params": { "name": name, "arguments": {} }
+        "params": { "name": name, "arguments": arguments }
     })
 }
 
@@ -205,7 +307,16 @@ async fn serves_get_uptime_over_a_full_handshake() {
         .iter()
         .map(|tool| tool["name"].as_str().unwrap().to_string())
         .collect();
-    assert_eq!(names, vec!["get_uptime".to_string()]);
+    assert_eq!(
+        names,
+        vec![
+            "get_uptime".to_string(),
+            "list_units".to_string(),
+            "start_unit".to_string(),
+            "stop_unit".to_string(),
+            "unit_status".to_string(),
+        ]
+    );
 
     let body = json_body(
         post(
@@ -311,6 +422,116 @@ async fn configured_origin_allowlist_rejects_a_foreign_origin() {
         .await
         .unwrap();
     assert_eq!(response.status(), 403);
+}
+
+async fn call_tool(addr: SocketAddr, session: &str, request: &Value) -> Value {
+    json_body(post(addr, Some("s3cr3t"), Some(session), request).await).await
+}
+
+#[tokio::test]
+async fn lists_units_through_the_tool() {
+    let addr = spawn(state_with_systemd(
+        FakeSystemd::default().with_unit("nginx.service"),
+    ))
+    .await;
+    let session = initialize_session(addr, "s3cr3t").await;
+    send_initialized(addr, "s3cr3t", &session).await;
+
+    let body = call_tool(addr, &session, &tools_call_with("list_units", json!({}))).await;
+    let units = body["result"]["structuredContent"].as_array().unwrap();
+    assert_eq!(units.len(), 1);
+    assert_eq!(units[0]["name"], "nginx.service");
+}
+
+#[tokio::test]
+async fn rejects_an_unknown_unit_type_filter() {
+    let addr = spawn(state_with_systemd(FakeSystemd::default())).await;
+    let session = initialize_session(addr, "s3cr3t").await;
+    send_initialized(addr, "s3cr3t", &session).await;
+
+    let request = tools_call_with("list_units", json!({ "unit_type": "nonsense" }));
+    let body = call_tool(addr, &session, &request).await;
+    assert_eq!(body["result"]["isError"], true);
+    assert!(
+        body["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("unknown unit type"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn reports_unit_status_through_the_tool() {
+    let addr = spawn(state_with_systemd(
+        FakeSystemd::default().with_unit("nginx.service"),
+    ))
+    .await;
+    let session = initialize_session(addr, "s3cr3t").await;
+    send_initialized(addr, "s3cr3t", &session).await;
+
+    let request = tools_call_with("unit_status", json!({ "name": "nginx" }));
+    let body = call_tool(addr, &session, &request).await;
+    assert_eq!(body["result"]["structuredContent"]["name"], "nginx.service");
+    assert_eq!(body["result"]["structuredContent"]["main_pid"], 7);
+}
+
+#[tokio::test]
+async fn unit_status_failure_is_a_tool_error() {
+    let addr = spawn(state_with_systemd(FakeSystemd::default())).await;
+    let session = initialize_session(addr, "s3cr3t").await;
+    send_initialized(addr, "s3cr3t", &session).await;
+
+    let request = tools_call_with("unit_status", json!({ "name": "ghost" }));
+    let body = call_tool(addr, &session, &request).await;
+    assert_eq!(body["result"]["isError"], true);
+    assert!(
+        body["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("ghost.service"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn starts_a_unit_through_the_tool() {
+    let addr = spawn(state_with_systemd(
+        FakeSystemd::default().with_outcome("done"),
+    ))
+    .await;
+    let session = initialize_session(addr, "s3cr3t").await;
+    send_initialized(addr, "s3cr3t", &session).await;
+
+    let request = tools_call_with("start_unit", json!({ "name": "nginx" }));
+    let body = call_tool(addr, &session, &request).await;
+    assert_eq!(body["result"]["structuredContent"]["unit"], "nginx.service");
+    assert_eq!(body["result"]["structuredContent"]["job_result"], "done");
+    assert_eq!(
+        body["result"]["structuredContent"]["active_state_after"],
+        "active"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_job_is_a_tool_error() {
+    let addr = spawn(state_with_systemd(
+        FakeSystemd::default().with_outcome("failed"),
+    ))
+    .await;
+    let session = initialize_session(addr, "s3cr3t").await;
+    send_initialized(addr, "s3cr3t", &session).await;
+
+    let request = tools_call_with("stop_unit", json!({ "name": "nginx" }));
+    let body = call_tool(addr, &session, &request).await;
+    assert_eq!(body["result"]["isError"], true);
+    assert!(
+        body["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("did not succeed"),
+        "{body}"
+    );
 }
 
 #[tokio::test]

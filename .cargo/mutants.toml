@@ -8,5 +8,10 @@
 # mutating; every other line of the workspace is fair game.
 exclude_globs = ["**/src/main.rs"]
 
+# Test every mutant against the whole workspace: a crate's public API is often
+# exercised only from another crate's tests, so per-package tests would let
+# those mutants survive.
+test_workspace = true
+
 timeout_multiplier = 3.0
 minimum_test_timeout = 60

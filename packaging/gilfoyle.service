@@ -40,5 +40,9 @@ SystemCallErrorNumber=EPERM
 # The only host file gilfoyle reads.
 ReadOnlyPaths=/proc/uptime
 
+# systemd is reached over the system bus (AF_UNIX, already allowed above).
+# Install the generated polkit rule to authorise start/stop:
+#   gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules > /dev/null
+
 [Install]
 WantedBy=multi-user.target

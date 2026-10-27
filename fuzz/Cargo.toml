@@ -45,3 +45,10 @@ path = "fuzz_targets/config_toml.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "unit_name"
+path = "fuzz_targets/unit_name.rs"
+test = false
+doc = false
+bench = false

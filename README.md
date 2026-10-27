@@ -1,14 +1,16 @@
 # Gilfoyle
 
-A secure [MCP](https://modelcontextprotocol.io) server, written in Rust, that exposes
-read-only Linux administration tools to an AI agent over Streamable HTTP.
+A secure [MCP](https://modelcontextprotocol.io) server, written in Rust, that exposes Linux
+administration tools to an AI agent over Streamable HTTP: reads are open, and the only
+mutations are starting and stopping systemd units the operator has allowlisted.
 
 Gilfoyle is built so that **it cannot execute anything**. There is no shell, no command
 passthrough and no scripting: every tool is a compiled function with fixed behaviour,
 and the only host interaction in the whole codebase is reading a handful of fixed
 files.
 
-> Status: early. One tool so far (`get_uptime`); the architecture is in place for more.
+> Status: early. Tools so far: `get_uptime`, `list_units`, `unit_status`, `start_unit`,
+> `stop_unit`.
 
 ## Why it is safe by construction
 
@@ -16,6 +18,9 @@ files.
   or the process table.
 - `unsafe` is forbidden workspace-wide, and `clippy::disallowed_methods` makes any
   reference to `std::process::Command` a **compile error**.
+- systemd is reached over **in-process D-Bus**, never by spawning `systemctl`.
+- Mutations are **default-deny**: `start_unit` and `stop_unit` act only on units listed in
+  `[systemd] manage_units`, and polkit is the authority behind them.
 - Every request must carry a bearer token; tokens are stored as SHA-256 digests and
   compared in constant time.
 - Configuration is fail-closed, and the server binds to loopback unless the operator
@@ -48,9 +53,10 @@ client ─┤  gilfoyle-server: MCP handler · HTTP · auth · config   │
 
 ## Requirements
 
-- Rust **1.88** or newer; the pinned toolchain in `.tool-versions` is a recent
+- Rust **1.89** or newer; the pinned toolchain in `.tool-versions` is a recent
   nightly (managed with [asdf](https://asdf-vm.com)), which also runs the fuzzers.
-- A Linux host (`/proc/uptime`).
+- A Linux host: `/proc/uptime` for the uptime tool, and a system D-Bus (`systemd`) for the
+  unit tools.
 
 ## Quickstart
 
@@ -79,7 +85,11 @@ allowed_origins = []              # empty disables Origin validation
 log_level = "info"                # tracing filter, JSON logs on stderr
 
 [tools]
-enabled = ["get_uptime"]          # omit the section to expose every compiled tool
+enabled = ["get_uptime", "list_units", "unit_status", "start_unit", "stop_unit"]
+
+[systemd]
+# Units that may be started or stopped. Empty (the default) means none may.
+manage_units = ["nginx.service", "myapp.service"]
 
 [[tokens]]
 id = "admin"
@@ -134,6 +144,38 @@ boot — not the uptime of the gilfoyle process). Takes no arguments.
 
 The same value is also returned as text content alongside the structured content.
 
+### systemd tools
+
+systemd is reached over **in-process D-Bus** (`org.freedesktop.systemd1`); gilfoyle never
+spawns `systemctl`.
+
+| Tool | Arguments | Effect |
+|---|---|---|
+| `list_units` | `active_state?`, `name_contains?`, `unit_type?`, `limit?` | list units (read-only) |
+| `unit_status` | `name` | detailed status of one unit (read-only) |
+| `start_unit` | `name` | start a **managed** unit |
+| `stop_unit` | `name` | stop a **managed** unit |
+
+Unit names may be given short (`nginx`) or fully qualified (`nginx.service`). `start_unit`
+and `stop_unit` wait for the systemd job to finish and report its result.
+
+Mutations are **default-deny**: they act only on units listed in `[systemd] manage_units`,
+and polkit is the authority behind them. Reads may target any unit.
+
+### Authorising unit control (polkit)
+
+`start_unit` and `stop_unit` require the `org.freedesktop.systemd1.manage-units`
+authorisation. Gilfoyle runs unprivileged and never escalates; instead, install the polkit
+rule generated from your configuration:
+
+```sh
+gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules > /dev/null
+```
+
+The rule grants the `gilfoyle` user the right to start and stop only the units in
+`[systemd] manage_units`. Gilfoyle warns at startup if the installed rule looks out of
+sync with the configuration.
+
 ## Threat model (summary)
 
 **In scope.** An attacker who reaches the HTTP endpoint, or who compromises the
@@ -166,7 +208,9 @@ make install-hooks  # git pre-commit hook (fmt + clippy + tests)
 ```
 
 The mutation score is held at **100%**: a single surviving mutant fails `make mutants`.
-The composition root (`main.rs`) is excluded; everything else must be caught.
+The composition root (`main.rs`) is excluded; everything else must be caught. The systemd
+adapter is tested against an **in-process mock bus** (a peer-to-peer socket pair), so no
+daemon or real unit is needed.
 
 ## Packaging
 

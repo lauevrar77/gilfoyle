@@ -12,8 +12,13 @@ mod application;
 mod domain;
 mod error;
 mod ports;
+mod systemd;
 
-pub use application::SystemService;
+pub use application::{SystemService, SystemdService};
 pub use domain::{Uptime, UptimeReport};
-pub use error::{AppError, DomainError, SystemError};
-pub use ports::{SystemAdmin, UptimeSource};
+pub use error::{AppError, DomainError, SystemError, SystemdError};
+pub use ports::{ServiceCatalog, ServiceControl, SystemAdmin, SystemdAdmin, UptimeSource};
+pub use systemd::{
+    Allowlist, JobResult, Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus,
+    UnitTimestamps, UnitType, micros_to_rfc3339,
+};
