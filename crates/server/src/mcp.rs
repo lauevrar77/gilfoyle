@@ -7,7 +7,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use gilfoyle_core::{
-    SystemAdmin, SystemdAdmin, Unit, UnitActionOutcome, UnitFilter, UnitStatus, UnitType,
+    SystemAdmin, SystemdAdmin, UnitActionOutcome, UnitFilter, UnitList, UnitStatus, UnitType,
     UptimeReport,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
@@ -123,13 +123,14 @@ impl GilfoyleServer {
     async fn list_units(
         &self,
         Parameters(params): Parameters<ListUnitsParams>,
-    ) -> Result<Json<Vec<Unit>>, String> {
+    ) -> Result<Json<UnitList>, String> {
         let filter = params.into_filter()?;
-        self.systemd
+        let units = self
+            .systemd
             .list_units(&filter)
             .await
-            .map(Json)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        Ok(Json(UnitList { units }))
     }
 
     /// Show the status of one systemd unit.

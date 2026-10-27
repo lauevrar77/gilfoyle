@@ -19,6 +19,6 @@ pub use domain::{Uptime, UptimeReport};
 pub use error::{AppError, DomainError, SystemError, SystemdError};
 pub use ports::{ServiceCatalog, ServiceControl, SystemAdmin, SystemdAdmin, UptimeSource};
 pub use systemd::{
-    Allowlist, JobResult, Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus,
+    Allowlist, JobResult, Unit, UnitActionOutcome, UnitFilter, UnitList, UnitName, UnitStatus,
     UnitTimestamps, UnitType, micros_to_rfc3339,
 };

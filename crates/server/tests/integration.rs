@@ -438,9 +438,31 @@ async fn lists_units_through_the_tool() {
     send_initialized(addr, "s3cr3t", &session).await;
 
     let body = call_tool(addr, &session, &tools_call_with("list_units", json!({}))).await;
-    let units = body["result"]["structuredContent"].as_array().unwrap();
+    let units = body["result"]["structuredContent"]["units"]
+        .as_array()
+        .unwrap();
     assert_eq!(units.len(), 1);
     assert_eq!(units[0]["name"], "nginx.service");
+}
+
+#[tokio::test]
+async fn every_tool_output_schema_is_an_object() {
+    // The MCP spec requires the root of `outputSchema` to be an object; a bare array is
+    // rejected by strict clients and breaks tool discovery.
+    let addr = spawn(state(vec![entry("admin", "s3cr3t")], None)).await;
+    let session = initialize_session(addr, "s3cr3t").await;
+    send_initialized(addr, "s3cr3t", &session).await;
+
+    let body = json_body(post(addr, Some("s3cr3t"), Some(&session), &tools_list()).await).await;
+    for tool in body["result"]["tools"].as_array().unwrap() {
+        if let Some(schema) = tool.get("outputSchema") {
+            assert_eq!(
+                schema["type"], "object",
+                "tool `{}` has a non-object outputSchema",
+                tool["name"]
+            );
+        }
+    }
 }
 
 #[tokio::test]

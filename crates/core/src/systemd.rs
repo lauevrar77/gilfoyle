@@ -156,6 +156,16 @@ pub struct Unit {
     pub sub_state: String,
 }
 
+/// A listing of units.
+///
+/// MCP requires the root of a tool's `outputSchema` to be an object, so a listing is
+/// wrapped rather than returned as a bare array.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+pub struct UnitList {
+    /// The matching units.
+    pub units: Vec<Unit>,
+}
+
 /// Timestamps of a unit, rendered as RFC 3339 UTC (or `null` when unset).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
 pub struct UnitTimestamps {
