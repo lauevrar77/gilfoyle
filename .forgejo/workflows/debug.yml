@@ -11,11 +11,20 @@ jobs:
   probe:
     name: probe checks
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - name: Checkout
-        continue-on-error: true
-        uses: https://code.forgejo.org/actions/checkout@v4
+        run: |
+          set -euo pipefail
+          SERVER="${{ forgejo.server_url }}"
+          SCHEME="${SERVER%%://*}"
+          HOST="${SERVER#*://}"
+          URL="${SCHEME}://x-access-token:${{ forgejo.token }}@${HOST}/${{ forgejo.repository }}.git"
+          git init -q .
+          git remote add origin "$URL"
+          git fetch -q --depth 1 origin "${{ forgejo.ref_name }}"
+          git checkout -q FETCH_HEAD
+          echo "checked out $(git rev-parse --short HEAD)"
 
       - name: Install Rust
         run: |
@@ -25,29 +34,23 @@ jobs:
             --component clippy --component rustfmt
           echo "$HOME/.cargo/bin" >> "$FORGEJO_PATH"
 
-      - name: Run the CI checks
+      - name: Run the checks
         run: |
           set +e
-          exec > /tmp/checks.txt 2>&1
+          exec > /tmp/report.txt 2>&1
           export PATH="$HOME/.cargo/bin:$PATH"
+          echo "pwd=$(pwd)"; ls
           cargo --version; rustc --version
           echo "=== fmt ==="; cargo fmt --all -- --check; echo "fmt_exit=$?"
-          echo "=== clippy ==="; cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tail -40; echo "clippy_exit=${PIPESTATUS[0]}"
-          echo "=== test ==="; cargo test --workspace 2>&1 | tail -20; echo "test_exit=${PIPESTATUS[0]}"
-          echo "=== install deny/audit ==="; cargo install --locked cargo-deny cargo-audit; echo "install_exit=$?"
-          echo "=== deny ==="; cargo deny check 2>&1 | tail -40; echo "deny_exit=${PIPESTATUS[0]}"
-          echo "=== audit ==="; cargo audit 2>&1 | tail -30; echo "audit_exit=${PIPESTATUS[0]}"
 
       - name: Report
         if: always()
         run: |
           set +e
-          cp /tmp/checks.txt /tmp/report.txt
           CONTENT=$(base64 -w0 /tmp/report.txt)
           printf '{"message":"ci report","branch":"ci-debug","content":"%s"}' "$CONTENT" > /tmp/payload.json
-          curl -sS -o /tmp/resp.json -w 'api_http=%{http_code}\n' -X POST \
+          curl -sS -o /dev/null -w 'api_http=%{http_code}\n' -X POST \
             -H "Authorization: token ${{ secrets.DIAG_TOKEN }}" \
             -H 'Content-Type: application/json' \
             --data @/tmp/payload.json \
             "${{ forgejo.api_url }}/repos/${{ forgejo.repository }}/contents/ci-report.txt"
-          head -c 300 /tmp/resp.json
