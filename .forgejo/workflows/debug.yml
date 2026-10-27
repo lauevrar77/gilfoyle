@@ -4,12 +4,11 @@ on:
   workflow_dispatch:
 
 env:
-  CARGO_TERM_COLOR: never
   RUST_TOOLCHAIN: "1.89.0"
 
 jobs:
   probe:
-    name: probe checks
+    name: probe cache
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,8 +21,7 @@ jobs:
         continue-on-error: true
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh
-          sh /tmp/rustup.sh -y --no-modify-path --profile minimal \
-            --default-toolchain "$RUST_TOOLCHAIN" --component clippy --component rustfmt
+          sh /tmp/rustup.sh -y --no-modify-path --profile minimal --default-toolchain "$RUST_TOOLCHAIN"
           echo "$HOME/.cargo/bin" >> "$FORGEJO_PATH"
 
       - name: Cache
@@ -34,26 +32,6 @@ jobs:
           path: target
           key: probe-${{ forgejo.sha }}
 
-      - name: Run the CI checks
-        run: |
-          set +e
-          exec > /tmp/checks.txt 2>&1
-          export PATH="$HOME/.cargo/bin:$PATH"
-          cargo --version || true
-          rustc --version || true
-          echo "=== fmt ==="
-          cargo fmt --all -- --check; echo "fmt_exit=$?"
-          echo "=== clippy ==="
-          cargo clippy --workspace --all-targets -- -D warnings; echo "clippy_exit=$?"
-          echo "=== test ==="
-          cargo test --workspace; echo "test_exit=$?"
-          echo "=== install deny/audit ==="
-          cargo install --locked cargo-deny cargo-audit; echo "install_exit=$?"
-          echo "=== deny ==="
-          cargo deny check; echo "deny_exit=$?"
-          echo "=== audit ==="
-          cargo audit; echo "audit_exit=$?"
-
       - name: Report
         if: always()
         run: |
@@ -62,11 +40,10 @@ jobs:
             echo "checkout=${{ steps.checkout.outcome }}"
             echo "rust=${{ steps.rust.outcome }}"
             echo "cache=${{ steps.cache.outcome }}"
-            echo "=== checks ==="
-            cat /tmp/checks.txt 2>/dev/null
+            echo "cache_url=${{ steps.cache.outputs.cache-hit }}"
           } > /tmp/report.txt
           CONTENT=$(base64 -w0 /tmp/report.txt)
-          printf '{"message":"ci report","branch":"ci-debug","content":"%s"}' "$CONTENT" > /tmp/payload.json
+          printf '{"message":"cache probe","branch":"ci-debug","content":"%s"}' "$CONTENT" > /tmp/payload.json
           curl -sS -X POST \
             -H "Authorization: token ${{ forgejo.token }}" \
             -H 'Content-Type: application/json' \
