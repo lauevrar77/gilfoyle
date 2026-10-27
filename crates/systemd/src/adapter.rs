@@ -74,6 +74,26 @@ impl SystemdAdapter {
             .map_err(|error| map_zbus_error(error, ""))
     }
 
+    /// Subscribe to manager signals, tolerating a connection that is already subscribed.
+    ///
+    /// systemd keeps the subscription for the lifetime of the connection, so every call
+    /// after the first reports `AlreadySubscribed`.
+    async fn ensure_subscribed(
+        &self,
+        manager: &ManagerProxy<'_>,
+        unit: &str,
+    ) -> Result<(), SystemdError> {
+        match timed(self.call_timeout, unit, manager.subscribe()).await {
+            Ok(()) => Ok(()),
+            Err(SystemdError::Other { name, .. })
+                if name == "org.freedesktop.systemd1.AlreadySubscribed" =>
+            {
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     async fn unit_path(&self, name: &UnitName) -> Result<OwnedObjectPath, SystemdError> {
         let manager = self.manager().await?;
         timed(
@@ -102,7 +122,7 @@ impl SystemdAdapter {
         let before = self.active_state(name).await?;
 
         // Subscribe before enqueuing so no JobRemoved signal can be missed.
-        timed(self.call_timeout, unit, manager.subscribe()).await?;
+        self.ensure_subscribed(&manager, unit).await?;
         let signal_proxy = zbus::Proxy::new(
             &self.connection,
             "org.freedesktop.systemd1",

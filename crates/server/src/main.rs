@@ -144,9 +144,15 @@ fn warn_if_polkit_out_of_sync(allowlist: &Allowlist) {
             path = POLKIT_RULE_PATH,
             "installed polkit rule differs from [systemd] manage_units; re-run `gilfoyle systemd polkit-rule`"
         ),
-        Err(_) => tracing::warn!(
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => tracing::warn!(
             path = POLKIT_RULE_PATH,
             "polkit rule not installed; start and stop will be refused by polkit"
+        ),
+        // The rule directory is usually root:polkitd 0750, so gilfoyle often cannot read it.
+        Err(error) => tracing::debug!(
+            path = POLKIT_RULE_PATH,
+            %error,
+            "could not read the polkit rule to verify it"
         ),
     }
 }

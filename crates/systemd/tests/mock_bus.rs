@@ -3,7 +3,7 @@
 //! The mock is served over a peer-to-peer D-Bus socket pair: no daemon, no process.
 
 use std::os::unix::net::UnixStream;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -30,6 +30,8 @@ type RawUnit = (
 enum MockError {
     NoSuchUnit,
     OnlyByDependency,
+    AlreadySubscribed,
+    Teapot,
 }
 
 #[derive(Clone)]
@@ -187,6 +189,8 @@ struct MockManager {
     units: Vec<SharedUnit>,
     deny_start: bool,
     hang: bool,
+    subscribe_error: bool,
+    subscribed: Arc<AtomicBool>,
 }
 
 impl MockManager {
@@ -211,11 +215,14 @@ impl MockManager {
         }
         let job = OwnedObjectPath::try_from("/org/freedesktop/systemd1/job/1").unwrap();
         *unit.active_state.lock().unwrap() = if start { "active" } else { "inactive" }.to_string();
-        let result = if start { "done" } else { "failed" };
-        emitter
-            .job_removed(1, &job, name, result)
-            .await
-            .expect("emit JobRemoved");
+        // systemd only delivers signals to subscribed clients.
+        if self.subscribed.load(Ordering::SeqCst) {
+            let result = if start { "done" } else { "failed" };
+            emitter
+                .job_removed(1, &job, name, result)
+                .await
+                .expect("emit JobRemoved");
+        }
         Ok(job)
     }
 }
@@ -268,7 +275,16 @@ impl MockManager {
     }
 
     async fn subscribe(&self) -> Result<(), MockError> {
-        Ok(())
+        if self.subscribe_error {
+            // An error name gilfoyle does not recognise, so it maps to SystemdError::Other.
+            return Err(MockError::Teapot);
+        }
+        // systemd keeps the subscription for the connection's lifetime.
+        if self.subscribed.swap(true, Ordering::SeqCst) {
+            Err(MockError::AlreadySubscribed)
+        } else {
+            Ok(())
+        }
     }
 
     #[zbus(signal)]
@@ -292,6 +308,7 @@ async fn mock_server(
     units: Vec<SharedUnit>,
     deny_start: bool,
     hang: bool,
+    subscribe_error: bool,
 ) -> (Connection, Connection) {
     let (server_stream, client_stream) = UnixStream::pair().unwrap();
     let guid = Guid::generate();
@@ -303,6 +320,8 @@ async fn mock_server(
             units: units.clone(),
             deny_start,
             hang,
+            subscribe_error,
+            subscribed: Arc::new(AtomicBool::new(false)),
         },
     );
     for unit in &units {
@@ -324,7 +343,16 @@ async fn connect(
     deny_start: bool,
     hang: bool,
 ) -> (SystemdAdapter, Connection) {
-    let (client, server) = mock_server(units, deny_start, hang).await;
+    connect_with(units, deny_start, hang, false).await
+}
+
+async fn connect_with(
+    units: Vec<SharedUnit>,
+    deny_start: bool,
+    hang: bool,
+    subscribe_error: bool,
+) -> (SystemdAdapter, Connection) {
+    let (client, server) = mock_server(units, deny_start, hang, subscribe_error).await;
     let adapter =
         SystemdAdapter::new(client).with_timeouts(Duration::from_secs(2), Duration::from_secs(2));
     (adapter, server)
@@ -438,6 +466,35 @@ async fn stops_a_unit_and_reports_a_failed_job() {
 }
 
 #[tokio::test]
+async fn a_connection_can_run_several_jobs() {
+    // The second call re-subscribes; systemd answers AlreadySubscribed, which must be tolerated.
+    let (adapter, _server) = connect(fixtures(), false, false).await;
+    let first = adapter
+        .start_unit(&UnitName::parse("nginx.service").unwrap())
+        .await
+        .unwrap();
+    assert_eq!(first.job_result.result, "done");
+    let second = adapter
+        .stop_unit(&UnitName::parse("nginx.service").unwrap())
+        .await
+        .unwrap();
+    assert_eq!(second.job_result.result, "failed");
+}
+
+#[tokio::test]
+async fn subscribe_errors_other_than_already_subscribed_are_propagated() {
+    let (adapter, _server) = connect_with(fixtures(), false, false, true).await;
+    let error = adapter
+        .start_unit(&UnitName::parse("nginx.service").unwrap())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&error, SystemdError::Other { name, .. } if name == "org.freedesktop.systemd1.Teapot"),
+        "expected the subscribe error to propagate, got {error:?}"
+    );
+}
+
+#[tokio::test]
 async fn maps_a_refused_start_to_only_by_dependency() {
     let (adapter, _server) = connect(fixtures(), true, false).await;
     assert_eq!(
@@ -462,7 +519,7 @@ fn counting_connector(client: Connection, calls: Arc<AtomicUsize>) -> Connector 
 
 #[tokio::test]
 async fn lazy_connects_once_and_delegates() {
-    let (client, _server) = mock_server(fixtures(), false, false).await;
+    let (client, _server) = mock_server(fixtures(), false, false, false).await;
     let calls = Arc::new(AtomicUsize::new(0));
     let lazy = LazySystemd::new(counting_connector(client, calls.clone()));
 

@@ -34,6 +34,11 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 tower-http = { version = "0.6", default-features = false, features = ["limit"] }
 rmcp = { version = "3.8", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
 
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 

@@ -165,16 +165,24 @@ and polkit is the authority behind them. Reads may target any unit.
 ### Authorising unit control (polkit)
 
 `start_unit` and `stop_unit` require the `org.freedesktop.systemd1.manage-units`
-authorisation. Gilfoyle runs unprivileged and never escalates; instead, install the polkit
-rule generated from your configuration:
+authorisation. Gilfoyle runs unprivileged and never escalates, so **polkit must be
+installed and running** for these two tools to work — without it, systemd refuses the call
+and the tools report a clear "not authorised" error. Reads (`list_units`, `unit_status`)
+work without polkit.
 
 ```sh
+# Debian/Ubuntu; on other distributions use the equivalent polkit daemon package.
+sudo apt-get install -y polkitd
+
+# Install the rule generated from your configuration.
 gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules > /dev/null
 ```
 
 The rule grants the `gilfoyle` user the right to start and stop only the units in
-`[systemd] manage_units`. Gilfoyle warns at startup if the installed rule looks out of
-sync with the configuration.
+`[systemd] manage_units`. Re-run the command whenever that list changes; gilfoyle warns at
+startup when the installed rule is missing or out of sync. Note that the rules directory is
+typically `root:polkitd 0750`, so gilfoyle may not be able to read it back — a missing rule
+is reported, an unreadable one is only logged at debug level.
 
 ## Threat model (summary)
 
@@ -211,6 +219,36 @@ The mutation score is held at **100%**: a single surviving mutant fails `make mu
 The composition root (`main.rs`) is excluded; everything else must be caught. The systemd
 adapter is tested against an **in-process mock bus** (a peer-to-peer socket pair), so no
 daemon or real unit is needed.
+
+## Installing on a host
+
+```sh
+# 1. Build
+cargo build --release -p gilfoyle-server --bin gilfoyle
+
+# 2. Dedicated unprivileged user
+sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin gilfoyle
+
+# 3. Binary and configuration
+sudo install -o root -g root -m 0755 target/release/gilfoyle /usr/local/bin/gilfoyle
+sudo install -d -o root -g gilfoyle -m 0750 /etc/gilfoyle
+# config.toml (0640 root:gilfoyle) — see Configuration above
+# env (0600 root:root) with GILFOYLE_TOKEN_<ID>=<secret>
+
+# 4. Service
+sudo install -o root -g root -m 0644 packaging/gilfoyle.service /etc/systemd/system/gilfoyle.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now gilfoyle
+
+# 5. polkit, to authorise start/stop (see above)
+sudo apt-get install -y polkitd
+gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules > /dev/null
+```
+
+`packaging/gilfoyle.service` is a hardened unit (dedicated `gilfoyle` user,
+`NoNewPrivileges`, `ProtectSystem=strict`, empty capability set, `SystemCallFilter`, and
+`/proc/uptime` as the only readable host path). The system bus is reached over `AF_UNIX`,
+which the unit already allows.
 
 ## Packaging
 
