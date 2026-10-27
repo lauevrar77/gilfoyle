@@ -1,0 +1,15 @@
+[package]
+name = "gilfoyle-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Gilfoyle domain core: pure types, ports and use cases (no I/O)."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+schemars = { workspace = true }
+thiserror = { workspace = true }

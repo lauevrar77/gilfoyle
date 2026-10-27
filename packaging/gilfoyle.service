@@ -1,0 +1,44 @@
+[Unit]
+Description=Gilfoyle — secure MCP server for Linux administration
+Documentation=https://github.com/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gilfoyle
+Group=gilfoyle
+ExecStart=/usr/local/bin/gilfoyle --config /etc/gilfoyle/config.toml
+# Put secrets here, e.g. GILFOYLE_TOKEN_ADMIN=<plaintext>, one per line.
+EnvironmentFile=/etc/gilfoyle/env
+Restart=on-failure
+RestartSec=2
+
+# Hardening: gilfoyle is unprivileged and needs no capabilities.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# The only host file gilfoyle reads.
+ReadOnlyPaths=/proc/uptime
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+[package]
+name = "gilfoyle-system"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Gilfoyle driven adapters that probe the host (read-only)."
+
+[lints]
+workspace = true
+
+[dependencies]
+gilfoyle-core = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

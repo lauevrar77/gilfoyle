@@ -1,0 +1,9 @@
+# Security guardrail: gilfoyle never spawns processes or shells.
+# Any attempt to reach std::process from any crate fails the lint.
+disallowed-methods = [
+  { path = "std::process::Command::new", reason = "gilfoyle must never execute external commands; tools are compiled functions only" },
+  { path = "std::process::Command::output", reason = "gilfoyle must never execute external commands" },
+  { path = "std::process::Command::spawn", reason = "gilfoyle must never execute external commands" },
+  { path = "std::process::Command::status", reason = "gilfoyle must never execute external commands" },
+  { path = "std::process::exit", reason = "the server must shut down gracefully, not by exiting mid-flight" },
+]

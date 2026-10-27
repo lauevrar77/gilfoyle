@@ -1,0 +1,12 @@
+# Mutation testing policy: the mutation score must stay at 100%.
+# A surviving mutant fails the run (cargo-mutants exit code 2).
+#
+# Run through `make mutants` / `scripts/mutation-gate.sh`, which pass
+# `--in-place` (not a config-file key) so builds reuse the existing target.
+
+# The composition root wires adapters together and contains no logic worth
+# mutating; every other line of the workspace is fair game.
+exclude_globs = ["**/src/main.rs"]
+
+timeout_multiplier = 3.0
+minimum_test_timeout = 60

@@ -1,0 +1,47 @@
+[package]
+name = "gilfoyle-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Independent workspace: keeps the fuzz crate out of `cargo test` and
+# `cargo mutants --workspace` for the main workspace.
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+toml = "0.8"
+
+[dependencies.gilfoyle-core]
+path = "../crates/core"
+
+[dependencies.gilfoyle-system]
+path = "../crates/system"
+
+[dependencies.gilfoyle-server]
+path = "../crates/server"
+
+[[bin]]
+name = "uptime_parse"
+path = "fuzz_targets/uptime_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bearer_header"
+path = "fuzz_targets/bearer_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_toml"
+path = "fuzz_targets/config_toml.rs"
+test = false
+doc = false
+bench = false
