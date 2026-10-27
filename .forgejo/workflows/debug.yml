@@ -1,0 +1,55 @@
+name: Debug
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    name: probe runner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        id: checkout
+        continue-on-error: true
+        uses: https://code.forgejo.org/actions/checkout@v4
+
+      - name: Diagnostics
+        if: always()
+        run: |
+          set +e
+          exec > /tmp/diag.txt 2>&1
+          echo "== checkout outcome =="
+          echo "${{ steps.checkout.outcome }}"
+          echo "== identity =="
+          id; uname -a
+          echo "== tools =="
+          for t in git curl bash node python3 jq base64 tar cargo rustc; do printf '%s: ' "$t"; command -v "$t" || echo MISSING; done
+          echo "== disk =="
+          df -h / | tail -1
+          echo "== selected env =="
+          env | grep -Ei '^(FORGEJO|GITHUB|RUNNER|CI|ACTIONS)' | sort
+          echo "== network =="
+          for u in https://code.forgejo.org/ https://static.rust-lang.org/ https://sh.rustup.rs https://github.com/ https://crates.io/; do
+            printf '%s -> ' "$u"
+            curl -sS -o /dev/null -m 15 -w '%{http_code}\n' "$u" || echo UNREACHABLE
+          done
+          echo "== rustup install attempt =="
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh && echo "downloaded rustup.sh" || echo "download failed"
+          sh /tmp/rustup.sh -y --no-modify-path --profile minimal --default-toolchain 1.89.0 && echo "rustup ok" || echo "rustup failed"
+          "$HOME/.cargo/bin/cargo" --version || echo "cargo missing"
+          echo "== done =="
+
+      - name: Publish diagnostics to the ci-debug branch
+        if: always()
+        run: |
+          set +e
+          CONTENT=$(base64 -w0 /tmp/diag.txt)
+          printf '{"message":"ci diagnostics","branch":"ci-debug","content":"%s"}' "$CONTENT" > /tmp/payload.json
+          curl -sS -X POST \
+            -H "Authorization: token ${{ forgejo.token }}" \
+            -H 'Content-Type: application/json' \
+            --data @/tmp/payload.json \
+            "${{ forgejo.api_url }}/repos/${{ forgejo.repository }}/contents/ci-diagnostics.txt"
+          echo
+          echo "== local copy =="
+          cat /tmp/diag.txt
