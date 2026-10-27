@@ -12,7 +12,9 @@ confidence-threshold = 0.9
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+# Workspace path dependencies (`{ workspace = true }`) carry no version, which the
+# wildcard check flags; allowing it keeps the idiom.
+wildcards = "allow"
 
 [[bans.deny]]
 name = "openssl"
