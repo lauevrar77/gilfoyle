@@ -250,6 +250,71 @@ gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.
 `/proc/uptime` as the only readable host path). The system bus is reached over `AF_UNIX`,
 which the unit already allows.
 
+## Releases
+
+Tagged releases ship a **static musl** binary, a checksum, and the deployment files:
+
+<https://forge.evrard.online:3000/laurent/gilfoyle/releases>
+
+```sh
+TAG=v0.1.0
+PKG=gilfoyle-0.1.0-x86_64-unknown-linux-musl
+BASE=http://forge.evrard.online:3000/laurent/gilfoyle/releases/download/$TAG
+
+curl -LO "$BASE/$PKG.tar.gz"
+curl -LO "$BASE/$PKG.tar.gz.sha256"
+sha256sum -c "$PKG.tar.gz.sha256"
+tar xzf "$PKG.tar.gz" && cd "$PKG"
+# the tarball holds the binary, the systemd unit, an example polkit rule and the docs;
+# then follow "Installing on a host" above
+```
+
+## Installing with an agent
+
+Hand the prompt below to an agent that has shell access (with `sudo`) on the target host.
+Fill in the parameter block first; the agent will ask about anything left as `<...>`.
+
+```text
+You are installing gilfoyle, a secure MCP server, on this Linux host. Follow the steps
+exactly, use sudo where needed, and stop and show me the error if anything fails.
+
+Parameters (ask me if a value is missing):
+  RELEASE_TAG   = v0.1.0
+  PKG           = gilfoyle-0.1.0-x86_64-unknown-linux-musl
+  RELEASE_BASE  = http://forge.evrard.online:3000/laurent/gilfoyle/releases/download/<RELEASE_TAG>
+  BIND          = <address to listen on, e.g. 127.0.0.1:8765 or 100.x.y.z:8765>
+  ALLOWED_HOSTS = <Host header values clients will use, with and without the port>
+  ALLOW_PUBLIC  = <true if BIND is not a loopback address, otherwise false>
+  TOKEN_ID      = <name for the client token, e.g. nestor>
+  MANAGED_UNITS = <systemd units that may be started or stopped, e.g. docker.service;
+                   leave empty for read-only>
+
+Steps:
+1. Download $PKG.tar.gz and its .sha256 into a temporary directory, verify the checksum
+   with `sha256sum -c`, and unpack it.
+2. Create the dedicated unprivileged user:
+   sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin gilfoyle
+3. Install the binary: sudo install -o root -g root -m 0755 gilfoyle /usr/local/bin/gilfoyle
+   and check `gilfoyle --version`.
+4. Create /etc/gilfoyle (0750 root:gilfoyle). Generate the secret with `openssl rand -hex 32`
+   and write /etc/gilfoyle/env (0600 root:root) containing
+   GILFOYLE_TOKEN_<TOKEN_ID uppercased>=<secret>.
+   Write /etc/gilfoyle/config.toml (0640 root:gilfoyle) with:
+     bind, allow_public, allowed_hosts, allowed_origins = [], log_level = "info",
+     [systemd] manage_units = MANAGED_UNITS,
+     [[tokens]] id = "<TOKEN_ID>".
+5. Install gilfoyle.service to /etc/systemd/system/ (0644), run `systemctl daemon-reload`,
+   then `systemctl enable --now gilfoyle`, and show `systemctl status gilfoyle`.
+6. If MANAGED_UNITS is not empty: install polkit if missing
+   (`apt-get install -y polkitd` on Debian/Ubuntu), then install the rule with
+   `gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules`.
+7. Verify: `curl -s http://<BIND>/healthz` must return {"status":"ok"}; then perform an
+   authenticated MCP `initialize` (Authorization: Bearer <secret>) and a `tools/list`, and
+   confirm the five tools: get_uptime, list_units, unit_status, start_unit, stop_unit.
+8. Report back the MCP URL, the tool list, and the token exactly once so I can store it.
+   Never log the token anywhere else, and never run gilfoyle as root.
+```
+
 ## Packaging
 
 `packaging/gilfoyle.service` is a hardened systemd unit (dedicated `gilfoyle` user,
