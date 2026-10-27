@@ -15,7 +15,20 @@ jobs:
     name: build and publish
     runs-on: ubuntu-latest
     steps:
-      - uses: https://code.forgejo.org/actions/checkout@v4
+      # No `uses:` actions: the runner image may not ship node, which Node-based
+      # actions (such as actions/checkout) need.
+      - name: Checkout
+        run: |
+          set -euo pipefail
+          SERVER="${{ forgejo.server_url }}"
+          SCHEME="${SERVER%%://*}"
+          HOST="${SERVER#*://}"
+          URL="${SCHEME}://x-access-token:${{ forgejo.token }}@${HOST}/${{ forgejo.repository }}.git"
+          git init -q .
+          git remote add origin "$URL"
+          git fetch -q --depth 1 origin "${{ forgejo.ref_name }}"
+          git checkout -q FETCH_HEAD
+          echo "checked out $(git rev-parse --short HEAD)"
 
       - name: Install Rust and musl toolchain
         run: |
@@ -26,8 +39,8 @@ jobs:
             --default-toolchain "$RUST_TOOLCHAIN"
           echo "$HOME/.cargo/bin" >> "$FORGEJO_PATH"
           rustup target add "$TARGET"
-          cargo --version
-          rustc --version
+          "$HOME/.cargo/bin/cargo" --version
+          "$HOME/.cargo/bin/rustc" --version
 
       - name: Build (static musl)
         run: cargo build --release --locked --target "$TARGET" -p gilfoyle-server --bin gilfoyle
