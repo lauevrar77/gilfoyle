@@ -1,0 +1,19 @@
+// Example polkit rule for gilfoyle.
+//
+// Generate the real one from your configuration and install it with:
+//
+//   gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules > /dev/null
+//
+// It grants the `gilfoyle` user the right to start and stop only the units listed
+// below, and nothing else. Keep the list in sync with [systemd] manage_units.
+polkit.addRule(function(action, subject) {
+    if (action.id != "org.freedesktop.systemd1.manage-units") return polkit.Result.NOT_HANDLED;
+    if (subject.user != "gilfoyle") return polkit.Result.NOT_HANDLED;
+    var verb = action.lookup("verb");
+    if (verb != "start" && verb != "stop") return polkit.Result.NOT_HANDLED;
+    var allowed = [
+        "nginx.service"
+    ];
+    if (allowed.indexOf(action.lookup("unit")) === -1) return polkit.Result.NOT_HANDLED;
+    return polkit.Result.YES;
+});

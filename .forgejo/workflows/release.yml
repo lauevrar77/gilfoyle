@@ -1,0 +1,71 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.89.0"
+  TARGET: x86_64-unknown-linux-musl
+
+jobs:
+  release:
+    name: build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+
+      - name: Install Rust and musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools jq
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh
+          sh /tmp/rustup.sh -y --no-modify-path --profile minimal \
+            --default-toolchain "$RUST_TOOLCHAIN"
+          echo "$HOME/.cargo/bin" >> "$FORGEJO_PATH"
+          rustup target add "$TARGET"
+          cargo --version
+          rustc --version
+
+      - name: Build (static musl)
+        run: cargo build --release --locked --target "$TARGET" -p gilfoyle-server --bin gilfoyle
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          VERSION="${{ forgejo.ref_name }}"
+          VERSION="${VERSION#v}"
+          PKG="gilfoyle-${VERSION}-${TARGET}"
+          mkdir -p "dist/${PKG}"
+          cp "target/${TARGET}/release/gilfoyle" "dist/${PKG}/gilfoyle"
+          cp packaging/gilfoyle.service "dist/${PKG}/gilfoyle.service"
+          cp packaging/49-gilfoyle-units.rules.example "dist/${PKG}/49-gilfoyle-units.rules.example"
+          cp README.md GLOSSARY.md "dist/${PKG}/"
+          tar -C dist -czf "dist/${PKG}.tar.gz" "${PKG}"
+          ( cd dist && sha256sum "${PKG}.tar.gz" > "${PKG}.tar.gz.sha256" )
+          echo "PKG=${PKG}" >> "$FORGEJO_ENV"
+          ls -l dist
+
+      - name: Publish release
+        run: |
+          set -euo pipefail
+          API="${{ forgejo.api_url }}"
+          REPO="${{ forgejo.repository }}"
+          TAG="${{ forgejo.ref_name }}"
+          PKG="$PKG"
+
+          RELEASE_ID=$(curl -sS -X POST \
+            -H "Authorization: token ${{ forgejo.token }}" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -n --arg tag "$TAG" '{tag_name: $tag, name: $tag, body: "Static musl build. See the assets below and the README for installation."}')" \
+            "$API/repos/$REPO/releases" | jq -r '.id')
+
+          for asset in "${PKG}.tar.gz" "${PKG}.tar.gz.sha256"; do
+            curl -sS -X POST \
+              -H "Authorization: token ${{ forgejo.token }}" \
+              -F "attachment=@dist/${asset}" \
+              "$API/repos/$REPO/releases/${RELEASE_ID}/assets?name=${asset}"
+            echo
+          done

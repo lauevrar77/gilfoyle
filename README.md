@@ -1,5 +1,7 @@
 # Gilfoyle
 
+[![CI](http://forge.evrard.online:3000/laurent/gilfoyle/actions/workflows/ci.yml/badge.svg)](http://forge.evrard.online:3000/laurent/gilfoyle/actions)
+
 A secure [MCP](https://modelcontextprotocol.io) server, written in Rust, that exposes Linux
 administration tools to an AI agent over Streamable HTTP: reads are open, and the only
 mutations are starting and stopping systemd units the operator has allowlisted.
@@ -249,6 +251,37 @@ gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.
 `NoNewPrivileges`, `ProtectSystem=strict`, empty capability set, `SystemCallFilter`, and
 `/proc/uptime` as the only readable host path). The system bus is reached over `AF_UNIX`,
 which the unit already allows.
+
+## Releases
+
+Pushing a tag `v*` builds a **static musl** binary and publishes it on the forge as
+`gilfoyle-<version>-x86_64-unknown-linux-musl.tar.gz` (binary, systemd unit, an example
+polkit rule, and the docs) plus a `.sha256` checksum.
+
+```sh
+TAG=v0.1.0
+PKG=gilfoyle-0.1.0-x86_64-unknown-linux-musl
+BASE=http://forge.evrard.online:3000/laurent/gilfoyle/releases/download/$TAG
+
+curl -LO "$BASE/$PKG.tar.gz"
+curl -LO "$BASE/$PKG.tar.gz.sha256"
+sha256sum -c "$PKG.tar.gz.sha256"
+tar xzf "$PKG.tar.gz" && cd "$PKG"
+# then follow "Installing on a host" below
+```
+
+## Continuous integration
+
+Forgejo Actions (`.forgejo/workflows/`):
+
+- **`ci.yml`** — on every push and pull request: `cargo fmt --check`, `clippy -D warnings`,
+  `cargo test --workspace`, `cargo deny check`, `cargo audit`, and the **100% mutation
+  gate** (`cargo-mutants`). The mutation job runs in parallel with the fast checks.
+- **`release.yml`** — on a `v*` tag: builds the static musl binary and publishes the
+  release assets.
+
+Fuzzing is deliberately **not** in CI (it needs nightly and ASan); run it locally with
+`make fuzz`.
 
 ## Packaging
 

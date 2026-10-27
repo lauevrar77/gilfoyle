@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: "1.89.0"
+
+jobs:
+  check:
+    name: format, lint, test, dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh
+          sh /tmp/rustup.sh -y --no-modify-path --profile minimal \
+            --default-toolchain "$RUST_TOOLCHAIN" \
+            --component clippy --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$FORGEJO_PATH"
+          cargo --version
+          rustc --version
+
+      - name: Cache cargo
+        uses: https://code.forgejo.org/actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin
+            target
+          key: cargo-check-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-check-${{ runner.os }}-
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Install cargo-deny and cargo-audit
+        run: cargo install --locked cargo-deny cargo-audit
+
+      - name: Dependencies (licenses, bans, sources)
+        run: cargo deny check
+
+      - name: Security advisories
+        run: cargo audit
+
+  mutants:
+    name: mutation gate (100%)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: https://code.forgejo.org/actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh
+          sh /tmp/rustup.sh -y --no-modify-path --profile minimal \
+            --default-toolchain "$RUST_TOOLCHAIN"
+          echo "$HOME/.cargo/bin" >> "$FORGEJO_PATH"
+          cargo --version
+
+      - name: Cache cargo
+        uses: https://code.forgejo.org/actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            ~/.cargo/bin
+            target
+          key: cargo-mutants-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            cargo-mutants-${{ runner.os }}-
+            cargo-check-${{ runner.os }}-
+
+      - name: Install cargo-mutants
+        run: cargo install --locked cargo-mutants
+
+      - name: Mutation gate (100% required)
+        run: ./scripts/mutation-gate.sh
