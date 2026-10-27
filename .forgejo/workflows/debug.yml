@@ -1,0 +1,53 @@
+name: Debug
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: never
+  RUST_TOOLCHAIN: "1.89.0"
+
+jobs:
+  probe:
+    name: probe checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        continue-on-error: true
+        uses: https://code.forgejo.org/actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh
+          sh /tmp/rustup.sh -y --no-modify-path --profile minimal \
+            --default-toolchain "$RUST_TOOLCHAIN" \
+            --component clippy --component rustfmt
+          echo "$HOME/.cargo/bin" >> "$FORGEJO_PATH"
+
+      - name: Run the CI checks
+        run: |
+          set +e
+          exec > /tmp/checks.txt 2>&1
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo --version; rustc --version
+          echo "=== fmt ==="; cargo fmt --all -- --check; echo "fmt_exit=$?"
+          echo "=== clippy ==="; cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tail -40; echo "clippy_exit=${PIPESTATUS[0]}"
+          echo "=== test ==="; cargo test --workspace 2>&1 | tail -20; echo "test_exit=${PIPESTATUS[0]}"
+          echo "=== install deny/audit ==="; cargo install --locked cargo-deny cargo-audit; echo "install_exit=$?"
+          echo "=== deny ==="; cargo deny check 2>&1 | tail -40; echo "deny_exit=${PIPESTATUS[0]}"
+          echo "=== audit ==="; cargo audit 2>&1 | tail -30; echo "audit_exit=${PIPESTATUS[0]}"
+
+      - name: Report
+        if: always()
+        run: |
+          set +e
+          cp /tmp/checks.txt /tmp/report.txt
+          CONTENT=$(base64 -w0 /tmp/report.txt)
+          printf '{"message":"ci report","branch":"ci-debug","content":"%s"}' "$CONTENT" > /tmp/payload.json
+          curl -sS -o /tmp/resp.json -w 'api_http=%{http_code}\n' -X POST \
+            -H "Authorization: token ${{ secrets.DIAG_TOKEN }}" \
+            -H 'Content-Type: application/json' \
+            --data @/tmp/payload.json \
+            "${{ forgejo.api_url }}/repos/${{ forgejo.repository }}/contents/ci-report.txt"
+          head -c 300 /tmp/resp.json
