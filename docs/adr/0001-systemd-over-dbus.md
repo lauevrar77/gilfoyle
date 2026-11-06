@@ -1,5 +1,8 @@
 # Control systemd over in-process D-Bus, not `systemctl`
 
+Status: amended by ADR 0005 — the "no C, no `unsafe`" constraint stated below no longer
+holds for the SSH transport's crypto backend.
+
 Gilfoyle must never spawn a process: `std::process::Command` is banned at compile time and
 `unsafe` is forbidden, so shelling out to the `systemctl` binary is off the table. To list
 units, read their status and start or stop them, we talk to `org.freedesktop.systemd1` on

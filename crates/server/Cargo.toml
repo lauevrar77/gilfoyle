@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Gilfoyle driving adapters (MCP over streamable HTTP) and the gilfoyle binary."
+description = "Gilfoyle driving adapters (MCP over SSH) and the gilfoyle binary."
 
 [lints]
 workspace = true
@@ -17,15 +17,13 @@ path = "src/main.rs"
 gilfoyle-core = { workspace = true }
 gilfoyle-system = { workspace = true }
 gilfoyle-systemd = { workspace = true }
+gilfoyle-ssh = { workspace = true }
+gilfoyle-client = { workspace = true }
 
 rmcp = { workspace = true }
 tokio = { workspace = true }
-axum = { workspace = true }
-tower-http = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
-subtle = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
@@ -34,4 +32,4 @@ toml = { workspace = true }
 
 [dev-dependencies]
 async-trait = { workspace = true }
-reqwest = { version = "0.12", default-features = false, features = ["json"] }
+rand = "0.10"

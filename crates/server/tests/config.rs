@@ -1,329 +1,210 @@
-use std::collections::{BTreeSet, HashMap};
-use std::path::{Path, PathBuf};
-
-use gilfoyle_server::auth::TokenEntry;
 use gilfoyle_server::config::{
-    ConfigError, DEFAULT_BIND, DEFAULT_LOG_LEVEL, RawConfig, RawSystemd, RawToken, RawTools,
-    parse_bind, resolve_config,
+    ConfigError, DEFAULT_HOST_KEY_PATH, DEFAULT_LOG_LEVEL, DEFAULT_MAX_CHANNELS_PER_CONNECTION,
+    DEFAULT_MAX_CONNECTIONS, RawConfig, known_tools, parse_bind, resolve_config, resolve_enabled,
 };
-use gilfoyle_server::hash::{sha256, to_hex};
+use gilfoyle_ssh::russh::keys::{Algorithm, PrivateKey};
 
-fn env_from(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-    pairs
-        .iter()
-        .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect()
+fn public_key() -> String {
+    PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519)
+        .unwrap()
+        .public_key()
+        .to_openssh()
+        .unwrap()
 }
 
-fn no_files() -> HashMap<PathBuf, String> {
-    HashMap::new()
+fn raw(toml: &str) -> RawConfig {
+    toml::from_str(toml).unwrap()
 }
 
-fn resolve(
-    raw: RawConfig,
-    env: &HashMap<String, String>,
-    files: &HashMap<PathBuf, String>,
-) -> Result<gilfoyle_server::config::Config, ConfigError> {
-    let env_lookup = |key: &str| env.get(key).cloned();
-    let file_lookup = |path: &Path| files.get(path).cloned();
-    resolve_config(raw, &env_lookup, &file_lookup)
+fn resolve(toml: &str) -> Result<gilfoyle_server::config::Config, ConfigError> {
+    resolve_config(raw(toml), &|_| None)
 }
 
-fn token(id: &str) -> RawToken {
-    RawToken {
-        id: id.to_string(),
-        sha256: Some(to_hex(&sha256(b"secret"))),
-    }
-}
+const KEY: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample";
 
 #[test]
-fn parse_bind_accepts_ipv4_and_ipv6() {
-    assert_eq!(parse_bind("127.0.0.1:8765").unwrap().port(), 8765);
-    assert!(parse_bind("[::1]:8765").unwrap().ip().is_loopback());
-    assert_eq!(
-        parse_bind("nonsense").unwrap_err(),
-        ConfigError::InvalidBind("nonsense".to_string())
-    );
-}
-
-#[test]
-fn applies_defaults_when_empty() {
-    let raw = RawConfig {
-        tokens: vec![token("admin")],
-        ..RawConfig::default()
-    };
-    let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
-    assert_eq!(config.bind.to_string(), DEFAULT_BIND);
-    assert_eq!(config.log_level, DEFAULT_LOG_LEVEL);
-    assert!(!config.allow_public);
-    assert_eq!(config.enabled_tools, None);
-    assert_eq!(config.tokens.len(), 1);
-}
-
-#[test]
-fn environment_overrides_file_values() {
-    let raw = RawConfig {
-        bind: Some("127.0.0.1:1000".to_string()),
-        log_level: Some("debug".to_string()),
-        tokens: vec![token("admin")],
-        ..RawConfig::default()
-    };
-    let env = env_from(&[
-        ("GILFOYLE_BIND", "127.0.0.1:2000"),
-        ("GILFOYLE_LOG", "trace"),
-    ]);
-    let config = resolve(raw, &env, &no_files()).unwrap();
-    assert_eq!(config.bind.to_string(), "127.0.0.1:2000");
-    assert_eq!(config.log_level, "trace");
-}
-
-#[test]
-fn refuses_public_bind_without_opt_in() {
-    let raw = RawConfig {
-        bind: Some("0.0.0.0:8765".to_string()),
-        tokens: vec![token("admin")],
-        ..RawConfig::default()
-    };
-    assert!(matches!(
-        resolve(raw, &env_from(&[]), &no_files()).unwrap_err(),
-        ConfigError::PublicBindWithoutOptIn(_)
+fn requires_a_bind_address() {
+    let result = resolve(&format!(
+        "[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+        public_key()
     ));
+    assert_eq!(result.unwrap_err(), ConfigError::MissingBind);
 }
 
 #[test]
-fn allows_public_bind_with_opt_in() {
-    let raw = RawConfig {
-        bind: Some("0.0.0.0:8765".to_string()),
-        allow_public: true,
-        tokens: vec![token("admin")],
-        ..RawConfig::default()
-    };
-    let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
-    assert!(config.allow_public);
-    assert!(!config.bind.ip().is_loopback());
-}
-
-#[test]
-fn fails_closed_without_tokens() {
-    let raw = RawConfig::default();
+fn rejects_a_malformed_bind() {
+    let result = resolve(&format!(
+        "bind = \"not-an-address\"\n[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+        public_key()
+    ));
     assert_eq!(
-        resolve(raw, &env_from(&[]), &no_files()).unwrap_err(),
-        ConfigError::NoTokens
+        result.unwrap_err(),
+        ConfigError::InvalidBind("not-an-address".to_string())
     );
 }
 
 #[test]
-fn rejects_empty_token_id() {
-    let raw = RawConfig {
-        tokens: vec![RawToken {
-            id: "   ".to_string(),
-            sha256: Some(to_hex(&sha256(b"x"))),
-        }],
-        ..RawConfig::default()
-    };
+fn requires_at_least_one_key() {
+    let result = resolve("bind = \"127.0.0.1:2222\"\n");
+    assert_eq!(result.unwrap_err(), ConfigError::NoKeys);
+}
+
+#[test]
+fn rejects_duplicate_key_ids() {
+    let key = public_key();
+    let result = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n[[keys]]\nid = \"dup\"\npublic_key = \"{key}\"\n[[keys]]\nid = \"dup\"\npublic_key = \"{key}\"\n"
+    ));
     assert_eq!(
-        resolve(raw, &env_from(&[]), &no_files()).unwrap_err(),
-        ConfigError::EmptyTokenId
+        result.unwrap_err(),
+        ConfigError::DuplicateKeyId("dup".to_string())
     );
 }
 
 #[test]
-fn rejects_duplicate_token_id() {
-    let raw = RawConfig {
-        tokens: vec![token("admin"), token("admin")],
-        ..RawConfig::default()
-    };
+fn rejects_an_invalid_public_key() {
+    let result =
+        resolve("bind = \"127.0.0.1:2222\"\n[[keys]]\nid = \"a\"\npublic_key = \"not a key\"\n");
+    assert!(matches!(result, Err(ConfigError::InvalidPublicKey(_, _))));
+}
+
+#[test]
+fn rejects_an_unknown_granted_tool() {
+    let key = public_key();
+    let result = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n[[keys]]\nid = \"a\"\npublic_key = \"{key}\"\ntools = [\"nope\"]\n"
+    ));
     assert_eq!(
-        resolve(raw, &env_from(&[]), &no_files()).unwrap_err(),
-        ConfigError::DuplicateTokenId("admin".to_string())
+        result.unwrap_err(),
+        ConfigError::UnknownTool("a".to_string(), "nope".to_string())
     );
 }
 
 #[test]
-fn rejects_invalid_inline_hash() {
-    let raw = RawConfig {
-        tokens: vec![RawToken {
-            id: "admin".to_string(),
-            sha256: Some("not-hex".to_string()),
-        }],
-        ..RawConfig::default()
-    };
+fn rejects_a_legacy_token_config() {
+    let key = public_key();
+    let result = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n[[keys]]\nid = \"a\"\npublic_key = \"{key}\"\n[[tokens]]\nid = \"admin\"\n"
+    ));
     assert_eq!(
-        resolve(raw, &env_from(&[]), &no_files()).unwrap_err(),
-        ConfigError::InvalidHash("admin".to_string())
+        result.unwrap_err(),
+        ConfigError::LegacyField("[[tokens]]".to_string())
     );
 }
 
 #[test]
-fn resolves_secret_from_environment() {
-    let raw = RawConfig {
-        tokens: vec![RawToken {
-            id: "admin".to_string(),
-            sha256: None,
-        }],
-        ..RawConfig::default()
-    };
-    let env = env_from(&[("GILFOYLE_TOKEN_ADMIN", "hunter2")]);
-    let config = resolve(raw, &env, &no_files()).unwrap();
+fn rejects_a_legacy_allow_public() {
+    let key = public_key();
+    let result = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\nallow_public = true\n[[keys]]\nid = \"a\"\npublic_key = \"{key}\"\n"
+    ));
     assert_eq!(
-        config.tokens,
-        vec![TokenEntry {
-            id: "admin".to_string(),
-            hash: sha256(b"hunter2"),
-        }]
+        result.unwrap_err(),
+        ConfigError::LegacyField("allow_public".to_string())
     );
 }
 
 #[test]
-fn resolves_secret_from_hash_file() {
-    let raw = RawConfig {
-        tokens: vec![RawToken {
-            id: "admin".to_string(),
-            sha256: None,
-        }],
-        ..RawConfig::default()
-    };
-    let expected = sha256(b"from-file");
-    let mut files = HashMap::new();
-    files.insert(
-        PathBuf::from("/etc/gilfoyle/tokens/admin"),
-        format!("{}\n", to_hex(&expected)),
-    );
-    let config = resolve(raw, &env_from(&[]), &files).unwrap();
-    assert_eq!(config.tokens[0].hash, expected);
+fn rejects_an_unknown_field() {
+    let parsed = toml::from_str::<RawConfig>("bind = \"127.0.0.1:2222\"\nmystery = 1\n");
+    assert!(parsed.is_err());
 }
 
 #[test]
-fn rejects_invalid_hash_file() {
-    let raw = RawConfig {
-        tokens: vec![RawToken {
-            id: "admin".to_string(),
-            sha256: None,
-        }],
-        ..RawConfig::default()
-    };
-    let mut files = HashMap::new();
-    files.insert(
-        PathBuf::from("/etc/gilfoyle/tokens/admin"),
-        "bad".to_string(),
+fn applies_sensible_defaults() {
+    let config = resolve(&format!(
+        "bind = \"10.0.0.1:2222\"\n[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+        public_key()
+    ))
+    .unwrap();
+    assert_eq!(config.log_level, DEFAULT_LOG_LEVEL);
+    assert_eq!(config.max_connections, DEFAULT_MAX_CONNECTIONS);
+    assert_eq!(
+        config.max_channels_per_connection,
+        DEFAULT_MAX_CHANNELS_PER_CONNECTION
     );
     assert_eq!(
-        resolve(raw, &env_from(&[]), &files).unwrap_err(),
-        ConfigError::InvalidHash("admin".to_string())
+        config.host_key,
+        std::path::PathBuf::from(DEFAULT_HOST_KEY_PATH)
     );
-}
-
-#[test]
-fn missing_secret_fails_closed() {
-    let raw = RawConfig {
-        tokens: vec![RawToken {
-            id: "admin".to_string(),
-            sha256: None,
-        }],
-        ..RawConfig::default()
-    };
-    assert_eq!(
-        resolve(raw, &env_from(&[]), &no_files()).unwrap_err(),
-        ConfigError::MissingSecret("admin".to_string())
-    );
-}
-
-#[test]
-fn custom_token_dir_is_used() {
-    let raw = RawConfig {
-        token_dir: Some("/custom".to_string()),
-        tokens: vec![RawToken {
-            id: "admin".to_string(),
-            sha256: None,
-        }],
-        ..RawConfig::default()
-    };
-    let expected = sha256(b"custom");
-    let mut files = HashMap::new();
-    files.insert(PathBuf::from("/custom/admin"), to_hex(&expected));
-    let config = resolve(raw, &env_from(&[]), &files).unwrap();
-    assert_eq!(config.tokens[0].hash, expected);
-}
-
-#[test]
-fn tools_allowlist_is_resolved() {
-    let raw = RawConfig {
-        tools: RawTools {
-            enabled: Some(vec!["get_uptime".to_string()]),
-        },
-        tokens: vec![token("admin")],
-        ..RawConfig::default()
-    };
-    let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
-    let mut expected = BTreeSet::new();
-    expected.insert("get_uptime".to_string());
-    assert_eq!(config.enabled_tools, Some(expected));
-}
-
-#[test]
-fn resolves_manage_units_with_normalisation() {
-    let raw = RawConfig {
-        systemd: RawSystemd {
-            manage_units: vec!["nginx".to_string(), "sshd.socket".to_string()],
-        },
-        tokens: vec![token("admin")],
-        ..RawConfig::default()
-    };
-    let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
-    let names: Vec<&str> = config.allowlist.names().collect();
-    assert_eq!(names, vec!["nginx.service", "sshd.socket"]);
-}
-
-#[test]
-fn rejects_an_invalid_managed_unit() {
-    let raw = RawConfig {
-        systemd: RawSystemd {
-            manage_units: vec!["foo.bar".to_string()],
-        },
-        tokens: vec![token("admin")],
-        ..RawConfig::default()
-    };
-    assert_eq!(
-        resolve(raw, &env_from(&[]), &no_files()).unwrap_err(),
-        ConfigError::InvalidManagedUnit("foo.bar".to_string())
-    );
-}
-
-#[test]
-fn empty_manage_units_means_no_managed_units() {
-    let raw = RawConfig {
-        tokens: vec![token("admin")],
-        ..RawConfig::default()
-    };
-    let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
+    assert_eq!(config.enabled_tools, known_tools());
     assert!(config.allowlist.is_empty());
 }
 
 #[test]
-fn parses_a_toml_document() {
-    let document = r#"
-        bind = "127.0.0.1:9000"
-        log_level = "warn"
-        allowed_hosts = ["localhost"]
-        allowed_origins = []
-
-        [tools]
-        enabled = ["get_uptime"]
-
-        [[tokens]]
-        id = "admin"
-        sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    "#;
-    let raw: RawConfig = toml::from_str(document).unwrap();
-    let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
-    assert_eq!(config.bind.to_string(), "127.0.0.1:9000");
-    assert_eq!(config.log_level, "warn");
-    assert_eq!(config.allowed_hosts, vec!["localhost".to_string()]);
-    assert_eq!(config.tokens[0].hash, sha256(b""));
+fn a_grant_is_recorded_on_the_key() {
+    let key = public_key();
+    let config = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n[[keys]]\nid = \"reader\"\npublic_key = \"{key}\"\ntools = [\"get_uptime\"]\n"
+    ))
+    .unwrap();
+    let entry = config
+        .keys
+        .iter()
+        .find(|entry| entry.id == "reader")
+        .unwrap();
+    assert_eq!(
+        entry
+            .tools
+            .as_ref()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>(),
+        vec!["get_uptime".to_string()]
+    );
 }
 
 #[test]
-fn rejects_unknown_toml_fields() {
-    let document = "unknown = true";
-    assert!(toml::from_str::<RawConfig>(document).is_err());
+fn env_overrides_bind_and_host_key() {
+    let raw = raw(&format!(
+        "bind = \"127.0.0.1:2222\"\n[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+        public_key()
+    ));
+    let config = resolve_config(raw, &|key| match key {
+        "GILFOYLE_BIND" => Some("0.0.0.0:9999".to_string()),
+        "GILFOYLE_HOST_KEY" => Some("/tmp/other_key".to_string()),
+        _ => None,
+    })
+    .unwrap();
+    assert_eq!(config.bind, parse_bind("0.0.0.0:9999").unwrap());
+    assert_eq!(config.host_key, std::path::PathBuf::from("/tmp/other_key"));
+}
+
+#[test]
+fn rejects_an_invalid_managed_unit() {
+    let key = public_key();
+    let result = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n[systemd]\nmanage_units = [\"bad name!\"]\n[[keys]]\nid = \"a\"\npublic_key = \"{key}\"\n"
+    ));
+    assert_eq!(
+        result.unwrap_err(),
+        ConfigError::InvalidManagedUnit("bad name!".to_string())
+    );
+}
+
+#[test]
+fn narrows_the_global_tool_set() {
+    let enabled = resolve_enabled(Some(vec!["get_uptime".to_string()])).unwrap();
+    assert_eq!(enabled.len(), 1);
+    assert!(enabled.contains("get_uptime"));
+}
+
+#[test]
+fn rejects_an_unknown_enabled_tool() {
+    assert_eq!(
+        resolve_enabled(Some(vec!["nope".to_string()])).unwrap_err(),
+        ConfigError::UnknownEnabledTool("nope".to_string())
+    );
+}
+
+#[test]
+fn parses_bind_trimmed() {
+    assert_eq!(parse_bind("  127.0.0.1:22  ").unwrap().port(), 22);
+}
+
+// Keep `KEY` referenced so the constant documents the OpenSSH line shape; unused otherwise.
+#[test]
+fn key_constant_is_parseable_shape() {
+    assert!(KEY.starts_with("ssh-ed25519 "));
 }
