@@ -28,10 +28,8 @@ pub fn load_config(path: &Path) -> Result<ClientConfig, ClientError> {
 pub async fn run(path: &Path) -> Result<(), String> {
     let config = load_config(path).map_err(|error| error.to_string())?;
 
-    let mut labels = Vec::with_capacity(config.nodes.len());
     let mut upstreams = Vec::new();
     for node in &config.nodes {
-        labels.push(node.label.clone());
         match node::Upstream::connect(node, config.pool_size).await {
             Ok(upstream) => {
                 tracing::info!(node = %node.label, "connected");
@@ -41,7 +39,7 @@ pub async fn run(path: &Path) -> Result<(), String> {
         }
     }
 
-    let proxy = GilfoyleProxy::new(labels, upstreams);
+    let proxy = GilfoyleProxy::new(config.nodes.clone(), config.pool_size, upstreams);
     tracing::info!("gilfoyle-client serving mcp on stdio");
 
     let running = rmcp::serve_server(proxy, rmcp::transport::stdio())

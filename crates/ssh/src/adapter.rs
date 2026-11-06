@@ -229,8 +229,12 @@ impl<F: ServiceFactory> russh::server::Handler for Connection<F> {
         let service = self.shared.factory.build(&principal);
         let stream = handle.into_stream();
         tokio::spawn(async move {
-            if let Err(error) = serve_server(service, stream).await {
-                tracing::debug!(%error, "mcp session ended");
+            match serve_server(service, stream).await {
+                // Keep the running service alive for the channel's lifetime.
+                Ok(running) => {
+                    let _ = running.waiting().await;
+                }
+                Err(error) => tracing::debug!(%error, "mcp session failed to initialize"),
             }
         });
         Ok(())
