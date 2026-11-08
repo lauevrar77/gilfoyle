@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use gilfoyle_ssh::russh::client::Handle;
 use gilfoyle_ssh::russh::keys::{PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
@@ -13,6 +14,9 @@ use rmcp::service::{Peer, RunningService};
 
 use crate::config::NodeConfig;
 use crate::error::ClientError;
+
+/// Timeout for one MCP session handshake (an SSH subsystem request plus initialize).
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The upstream MCP client handler; the default implementation is enough.
 #[derive(Clone)]
@@ -97,9 +101,16 @@ impl Upstream {
                 .request_subsystem(true, SUBSYSTEM)
                 .await
                 .map_err(|error| node_error(&node.label, error))?;
-            let service = rmcp::serve_client(UpstreamClient, channel.into_stream())
-                .await
-                .map_err(|error| node_error(&node.label, error))?;
+            let service = tokio::time::timeout(
+                HANDSHAKE_TIMEOUT,
+                rmcp::serve_client(UpstreamClient, channel.into_stream()),
+            )
+            .await
+            .map_err(|_| ClientError::Node {
+                label: node.label.clone(),
+                cause: "mcp handshake timed out".to_string(),
+            })?
+            .map_err(|error| node_error(&node.label, error))?;
             if index == 0 {
                 let listed = service
                     .peer()
