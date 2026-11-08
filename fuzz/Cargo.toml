@@ -25,6 +25,12 @@ path = "../crates/system"
 [dependencies.gilfoyle-server]
 path = "../crates/server"
 
+[dependencies.gilfoyle-ssh]
+path = "../crates/ssh"
+
+[dependencies.gilfoyle-client]
+path = "../crates/client"
+
 [[bin]]
 name = "uptime_parse"
 path = "fuzz_targets/uptime_parse.rs"
@@ -33,8 +39,8 @@ doc = false
 bench = false
 
 [[bin]]
-name = "bearer_header"
-path = "fuzz_targets/bearer_header.rs"
+name = "authorized_key"
+path = "fuzz_targets/authorized_key.rs"
 test = false
 doc = false
 bench = false
@@ -42,6 +48,13 @@ bench = false
 [[bin]]
 name = "config_toml"
 path = "fuzz_targets/config_toml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "client_config"
+path = "fuzz_targets/client_config.rs"
 test = false
 doc = false
 bench = false
