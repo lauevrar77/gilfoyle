@@ -68,13 +68,12 @@ graph.
 ## Quickstart (node)
 
 ```sh
-# Build
-make build
+make build                                  # debug build of the workspace
 
-# Generate the host key; it prints the SHA256 fingerprint for clients to pin
-gilfoyle ssh keygen
-
-# Derive nothing: clients authenticate with a public key listed in [[keys]]
+# Installing on a host, generating the host key and authorising clients is documented
+# step by step in docs/INSTALL.md. In short, after install:
+#   sudo gilfoyle ssh keygen --path /etc/gilfoyle/ssh_host_ed25519_key
+# prints the SHA256 fingerprint that clients pin; client public keys go in [[keys]].
 ```
 
 ## Node configuration (`/etc/gilfoyle/config.toml`)
@@ -118,7 +117,10 @@ inherits the global set. Rotating or revoking a key requires a restart.
 | `GILFOYLE_HOST_KEY` | overrides `host_key` |
 | `GILFOYLE_LOG` | overrides `log_level` |
 
-## Client configuration (`~/.config/gilfoyle/client.toml`)
+## Client configuration
+
+A suggested path is `~/.config/gilfoyle/client.toml`; pass it to the client with
+`gilfoyle client --config <path>` (or `GILFOYLE_CLIENT_CONFIG`).
 
 ```toml
 pool_size = 4
@@ -225,26 +227,21 @@ session wiring, the server's `serve.rs`); their decisions live in pure, fully-te
 
 ## Installing on a host
 
+The full procedure — a fresh install, the **migration from the old HTTP build**, and a
+copy-paste prompt for an agent — lives in [docs/INSTALL.md](docs/INSTALL.md). The short
+version:
+
 ```sh
-# 1. Build
 cargo build --release -p gilfoyle-server --bin gilfoyle
 
-# 2. Dedicated unprivileged user
 sudo useradd --system --user-group --no-create-home --shell /usr/sbin/nologin gilfoyle
-
-# 3. Binary, configuration and host key
 sudo install -o root -g root -m 0755 target/release/gilfoyle /usr/local/bin/gilfoyle
 sudo install -d -o root -g gilfoyle -m 0750 /etc/gilfoyle
-sudo -u gilfoyle /usr/local/bin/gilfoyle ssh keygen   # prints the fingerprint
-# config.toml (0640 root:gilfoyle) — see Configuration above
-
-# 4. Service
+sudo /usr/local/bin/gilfoyle ssh keygen --path /etc/gilfoyle/ssh_host_ed25519_key
+sudo chown gilfoyle:gilfoyle /etc/gilfoyle/ssh_host_ed25519_key   # the service reads it
+# write /etc/gilfoyle/config.toml (0640 root:gilfoyle) — see Node configuration above
 sudo install -o root -g root -m 0644 packaging/gilfoyle.service /etc/systemd/system/gilfoyle.service
-sudo systemctl daemon-reload
-sudo systemctl enable --now gilfoyle
-
-# 5. polkit, to authorise start/stop (see above)
-sudo apt-get install -y polkitd
+sudo systemctl daemon-reload && sudo systemctl enable --now gilfoyle
 gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules > /dev/null
 ```
 

@@ -59,6 +59,7 @@ If the tool is a read, add it to `gilfoyle-client`'s read set so it can be fanne
 ## Layout and docs
 
 - `README.md` — what gilfoyle is, configuration, usage, threat model.
+- `docs/INSTALL.md` — install and update a node; includes a prompt for an install agent.
 - `GLOSSARY.md` — the domain vocabulary; keep it free of implementation detail.
 - `docs/adr/` — decisions worth remembering (see 0005 and 0006 for the SSH transport and
   key authentication).
