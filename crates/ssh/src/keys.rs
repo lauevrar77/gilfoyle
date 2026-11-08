@@ -145,9 +145,9 @@ mod tests {
     #[test]
     fn reports_emptiness_and_length() {
         assert!(AuthorizedKeys::default().is_empty());
-        let keys = AuthorizedKeys::new(vec![generated("a")]).unwrap();
+        let keys = AuthorizedKeys::new(vec![generated("a"), generated("b")]).unwrap();
         assert!(!keys.is_empty());
-        assert_eq!(keys.len(), 1);
+        assert_eq!(keys.len(), 2);
     }
 
     #[test]

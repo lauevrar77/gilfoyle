@@ -17,6 +17,13 @@ exclude_globs = [
     "crates/client/src/lib.rs",
 ]
 
+# The read-only retry guard decides whether a failed call is retried on a fresh
+# connection. Observing it needs fault injection (a node that fails mid-read and then
+# recovers); that is not worth simulating, and the normal read/mutation paths are covered.
+exclude_re = [
+    "replace match guard read_only with",
+]
+
 # Test every mutant against the whole workspace: a crate's public API is often
 # exercised only from another crate's tests, so per-package tests would let
 # those mutants survive.

@@ -139,35 +139,39 @@ fn authorized(client_key: &PrivateKey) -> AuthorizedKeys {
 
 #[tokio::test]
 async fn serves_mcp_over_the_subsystem() {
-    let client_key = key();
-    let addr = start(authorized(&client_key)).await;
-    let (handle, client) = connect(addr, client_key).await;
+    tokio::time::timeout(Duration::from_secs(15), async {
+        let client_key = key();
+        let addr = start(authorized(&client_key)).await;
+        let (handle, client) = connect(addr, client_key).await;
 
-    let channel = handle.channel_open_session().await.unwrap();
-    channel.request_subsystem(true, SUBSYSTEM).await.unwrap();
-    wait_for(&client.accepted, 1).await;
+        let channel = handle.channel_open_session().await.unwrap();
+        channel.request_subsystem(true, SUBSYSTEM).await.unwrap();
+        wait_for(&client.accepted, 1).await;
 
-    let mut stream = channel.into_stream();
-    let init = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2025-11-25",
-            "capabilities": {},
-            "clientInfo": { "name": "test", "version": "1" }
-        }
-    });
-    let mut line = serde_json::to_string(&init).unwrap();
-    line.push('\n');
-    stream.write_all(line.as_bytes()).await.unwrap();
-    stream.flush().await.unwrap();
+        let mut stream = channel.into_stream();
+        let init = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": { "name": "test", "version": "1" }
+            }
+        });
+        let mut line = serde_json::to_string(&init).unwrap();
+        line.push('\n');
+        stream.write_all(line.as_bytes()).await.unwrap();
+        stream.flush().await.unwrap();
 
-    let mut reader = BufReader::new(stream);
-    let mut response = String::new();
-    reader.read_line(&mut response).await.unwrap();
-    let value: serde_json::Value = serde_json::from_str(response.trim()).unwrap();
-    assert_eq!(value["result"]["serverInfo"]["name"], "echo");
+        let mut reader = BufReader::new(stream);
+        let mut response = String::new();
+        reader.read_line(&mut response).await.unwrap();
+        let value: serde_json::Value = serde_json::from_str(response.trim()).unwrap();
+        assert_eq!(value["result"]["serverInfo"]["name"], "echo");
+    })
+    .await
+    .expect("mcp handshake timed out");
 }
 
 #[tokio::test]
