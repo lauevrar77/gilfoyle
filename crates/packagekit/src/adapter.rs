@@ -72,6 +72,7 @@ pub struct PackagekitAdapter {
     destination: String,
     call_timeout: Duration,
     poll_timeout: Duration,
+    retry_base: Duration,
     limit: usize,
     mutations: tokio::sync::Mutex<()>,
 }
@@ -85,6 +86,7 @@ impl PackagekitAdapter {
             destination,
             call_timeout: DEFAULT_CALL_TIMEOUT,
             poll_timeout: DEFAULT_POLL_TIMEOUT,
+            retry_base: RETRY_BASE,
             limit: DEFAULT_LIMIT,
             mutations: tokio::sync::Mutex::new(()),
         })
@@ -106,6 +108,12 @@ impl PackagekitAdapter {
         self.call_timeout = call_timeout;
         self.poll_timeout = poll_timeout;
         self.limit = limit;
+        self
+    }
+
+    /// Override the lock-retry base delay (used by tests).
+    pub fn with_retry_base(mut self, retry_base: Duration) -> Self {
+        self.retry_base = retry_base;
         self
     }
 
@@ -254,7 +262,7 @@ impl PackageManager for PackagekitAdapter {
     async fn apply(&self, package_ids: &[String]) -> Result<UpgradeReport, PackageError> {
         let _guard = self.mutations.lock().await;
         self.authorize(ACTION_UPDATE).await?;
-        retry(|| async {
+        run_with_retry(self.retry_base, || async {
             self.run(
                 TransactionKind::Apply,
                 self.limit,
@@ -269,7 +277,7 @@ impl PackageManager for PackagekitAdapter {
     async fn refresh(&self, force: bool) -> Result<RefreshReport, PackageError> {
         let _guard = self.mutations.lock().await;
         self.authorize(ACTION_REFRESH).await?;
-        retry(|| async {
+        run_with_retry(self.retry_base, || async {
             self.run(
                 TransactionKind::Refresh,
                 self.limit,
@@ -282,22 +290,27 @@ impl PackageManager for PackagekitAdapter {
     }
 }
 
+/// The backoff delays between lock retries. Finite: the iterator ends when the
+/// retry budget is exhausted.
+fn retry_delays(base: Duration) -> impl Iterator<Item = Duration> {
+    (0..RETRY_MAX).map(move |attempt| base.saturating_mul(1u32 << attempt))
+}
+
 /// Retry a fallible operation while it reports a held lock, with backoff.
-async fn retry<T, F, Fut>(mut operation: F) -> Result<T, PackageError>
+async fn run_with_retry<T, F, Fut>(base: Duration, mut operation: F) -> Result<T, PackageError>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<T, PackageError>>,
 {
-    let mut attempt = 0;
-    let mut delay = RETRY_BASE;
+    let mut delays = retry_delays(base);
     loop {
         match operation().await {
-            Err(PackageError::Locked(_)) if attempt + 1 < RETRY_MAX => {
-                attempt += 1;
-                tokio::time::sleep(delay).await;
-                delay = delay.saturating_mul(2);
-            }
-            other => return other,
+            Ok(value) => return Ok(value),
+            Err(error @ PackageError::Locked(_)) => match delays.next() {
+                Some(delay) => tokio::time::sleep(delay).await,
+                None => return Err(error),
+            },
+            Err(other) => return Err(other),
         }
     }
 }
@@ -412,5 +425,26 @@ fn decode_package(message: &zbus::Message, batched: bool) -> Vec<PackageEvent> {
             Ok((info, package_id, summary)) => vec![package(info, package_id, summary)],
             Err(_) => Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::retry_delays;
+    use std::time::Duration;
+
+    #[test]
+    fn retry_delays_double_until_the_budget_runs_out() {
+        let delays: Vec<Duration> = retry_delays(Duration::from_millis(1000)).collect();
+        assert_eq!(
+            delays,
+            vec![
+                Duration::from_millis(1000),
+                Duration::from_millis(2000),
+                Duration::from_millis(4000),
+                Duration::from_millis(8000),
+                Duration::from_millis(16000),
+            ]
+        );
     }
 }

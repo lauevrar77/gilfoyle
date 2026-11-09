@@ -5,12 +5,14 @@
 
 use std::os::unix::net::UnixStream;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use gilfoyle_core::{
     PackageError, PackageFilter, PackageManager, UpdateFilter, pk_error, pk_exit, pk_info,
+    pk_restart,
 };
-use gilfoyle_packagekit::PackagekitAdapter;
+use gilfoyle_packagekit::{Connector, LazyPackagekit, PackagekitAdapter};
 use zbus::object_server::SignalEmitter;
 use zbus::{Connection, Guid, OwnedObjectPath, connection::Builder};
 
@@ -41,10 +43,18 @@ struct MockState {
     error: Option<(u32, String)>,
     /// A `RepoSignatureRequired` signal (untrusted).
     untrusted: bool,
+    /// A `EulaRequired` signal.
+    eula: bool,
+    /// A `RequireRestart(system)` signal.
+    restart: bool,
     /// The exit code to finish with.
     exit: u32,
     /// Whether to hang before emitting (to exercise the timeout).
     hang: bool,
+    /// How many times to report the database as locked.
+    lock_times: u32,
+    /// How many transactions have finished so far.
+    finishes: Arc<AtomicU32>,
 }
 
 impl MockState {
@@ -58,8 +68,12 @@ impl MockState {
             authorize: 1,
             error: None,
             untrusted: false,
+            eula: false,
+            restart: false,
             exit: pk_exit::SUCCESS,
             hang: false,
+            lock_times: 0,
+            finishes: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -105,6 +119,12 @@ struct MockTransaction {
 
 impl MockTransaction {
     async fn finish(&self, emitter: &SignalEmitter<'_>) -> Result<(), MockError> {
+        let attempt = self.state.finishes.fetch_add(1, Ordering::SeqCst);
+        if attempt < self.state.lock_times {
+            Self::error_code(emitter, pk_error::CANNOT_GET_LOCK, "locked")
+                .await
+                .map_err(|_| MockError::Emission)?;
+        }
         if let Some((code, details)) = &self.state.error {
             Self::error_code(emitter, *code, details)
                 .await
@@ -112,6 +132,16 @@ impl MockTransaction {
         }
         if self.state.untrusted {
             Self::repo_signature_required(emitter, "pkg;1;amd64;repo;")
+                .await
+                .map_err(|_| MockError::Emission)?;
+        }
+        if self.state.eula {
+            Self::eula_required(emitter, "eula", "pkg;1;amd64;r;", "vendor", "licence")
+                .await
+                .map_err(|_| MockError::Emission)?;
+        }
+        if self.state.restart {
+            Self::require_restart(emitter, pk_restart::SYSTEM, "pkg;1;amd64;r;")
                 .await
                 .map_err(|_| MockError::Emission)?;
         }
@@ -244,6 +274,15 @@ impl MockTransaction {
     async fn repo_signature_required(
         emitter: &SignalEmitter<'_>,
         package_id: &str,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn eula_required(
+        emitter: &SignalEmitter<'_>,
+        eula_id: &str,
+        package_id: &str,
+        vendor_name: &str,
+        license_agreement: &str,
     ) -> zbus::Result<()>;
 }
 
@@ -439,4 +478,99 @@ async fn refuses_an_unsupported_daemon_version() {
     state.major = 2;
     let result = connect(state).await;
     assert!(matches!(result, Err(PackageError::Unsupported(_))));
+}
+
+#[tokio::test]
+async fn refuses_a_eula() {
+    let mut state = MockState::base();
+    state.eula = true;
+    let adapter = connect(state).await.unwrap();
+    let error = adapter.refresh(true).await.unwrap_err();
+    assert!(matches!(error, PackageError::Eula(_)), "{error:?}");
+}
+
+#[tokio::test]
+async fn reports_a_required_restart() {
+    let mut state = MockState::base();
+    state.restart = true;
+    let adapter = connect(state).await.unwrap();
+    let report = adapter.refresh(true).await.unwrap();
+    assert_eq!(report.exit, "success");
+    // The restart signal is only surfaced on the upgrade report.
+    let mut state = MockState::base();
+    state.restart = true;
+    state.plan = vec![(pk_info::SECURITY, "x;1;amd64;d;".to_string(), String::new())];
+    let adapter = connect(state).await.unwrap();
+    let report = adapter.apply(&["x;1;amd64;d;".to_string()]).await.unwrap();
+    assert_eq!(report.restart_required.as_deref(), Some("system"));
+}
+
+#[tokio::test]
+async fn retries_when_the_database_is_locked() {
+    let mut state = MockState::base();
+    state.lock_times = 2;
+    state.plan = vec![(pk_info::SECURITY, "x;1;amd64;d;".to_string(), String::new())];
+    let adapter = connect(state)
+        .await
+        .unwrap()
+        .with_retry_base(Duration::from_millis(1));
+    let report = adapter.apply(&["x;1;amd64;d;".to_string()]).await.unwrap();
+    assert!(report.success);
+}
+
+#[tokio::test]
+async fn gives_up_after_the_retry_budget() {
+    let mut state = MockState::base();
+    state.lock_times = 100;
+    let adapter = connect(state)
+        .await
+        .unwrap()
+        .with_retry_base(Duration::from_millis(1));
+    let error = adapter.refresh(true).await.unwrap_err();
+    assert!(matches!(error, PackageError::Locked(_)), "{error:?}");
+}
+
+#[tokio::test]
+async fn lazy_delegates_every_operation() {
+    let mut state = MockState::base().with_package(pk_info::INSTALLED, "nginx;1;amd64;d;");
+    state.plan = vec![(
+        pk_info::SECURITY,
+        "openssl;3;amd64;d;".to_string(),
+        String::new(),
+    )];
+    state.repos = vec![("debian".to_string(), "Debian".to_string(), true)];
+    let connector: Connector = Arc::new(move || {
+        let state = state.clone();
+        Box::pin(async move { connect(state).await })
+    });
+    let lazy = LazyPackagekit::new(connector);
+
+    assert_eq!(
+        lazy.list_installed(&PackageFilter::default())
+            .await
+            .unwrap()
+            .total,
+        1
+    );
+    assert_eq!(
+        lazy.check_updates(&UpdateFilter::default())
+            .await
+            .unwrap()
+            .total,
+        1
+    );
+    assert_eq!(
+        lazy.plan(&["openssl;2;amd64;d;".to_string()])
+            .await
+            .unwrap()
+            .total,
+        1
+    );
+    assert!(
+        lazy.apply(&["openssl;2;amd64;d;".to_string()])
+            .await
+            .unwrap()
+            .success
+    );
+    assert!(lazy.refresh(true).await.unwrap().success);
 }

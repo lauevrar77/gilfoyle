@@ -132,11 +132,8 @@ pub fn filter_none() -> u64 {
 /// plus `SIMULATE` when planning.
 pub fn update_flags(simulate: bool) -> u64 {
     let trusted = 1u64 << flag::ONLY_TRUSTED;
-    if simulate {
-        trusted | (1u64 << flag::SIMULATE)
-    } else {
-        trusted
-    }
+    let simulate = if simulate { 1u64 << flag::SIMULATE } else { 0 };
+    trusted + simulate
 }
 
 /// A parsed PackageKit package identifier: `name;version;arch;origin;data`.
@@ -456,7 +453,10 @@ impl UpgradePlan {
 
     /// Whether the plan crosses the "never install or remove" boundary.
     pub fn is_transitive(&self) -> bool {
-        self.would_install + self.would_remove + self.would_obsolete + self.would_downgrade > 0
+        self.would_install > 0
+            || self.would_remove > 0
+            || self.would_obsolete > 0
+            || self.would_downgrade > 0
     }
 }
 
@@ -837,8 +837,8 @@ impl Collector {
             }
             PackageEvent::RequireRestart { kind } => {
                 self.restart = Some(match self.restart {
-                    Some(current) if current > kind => current,
-                    _ => kind,
+                    Some(current) => current.max(kind),
+                    None => kind,
                 });
             }
             PackageEvent::ErrorCode { code, details } => {

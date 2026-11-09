@@ -363,3 +363,53 @@ impl ServerHandler for GilfoyleServer {
         self.tool_router.call(context).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn list_packages_filter_defaults_the_limit() {
+        let filter = ListPackagesParams {
+            name_contains: Some("nginx".to_string()),
+            limit: None,
+        }
+        .into_filter();
+        assert_eq!(filter.name_contains.as_deref(), Some("nginx"));
+        assert_eq!(filter.limit, Some(DEFAULT_PACKAGES_LIMIT));
+
+        let filter = ListPackagesParams {
+            name_contains: None,
+            limit: Some(5),
+        }
+        .into_filter();
+        assert_eq!(filter.name_contains, None);
+        assert_eq!(filter.limit, Some(5));
+    }
+
+    #[test]
+    fn list_updates_filter_parses_and_rejects_severity() {
+        let filter = ListUpdatesParams {
+            min_severity: Some("high".to_string()),
+            limit: None,
+        }
+        .into_filter()
+        .unwrap();
+        assert_eq!(filter.min_severity, Some(Severity::High));
+        assert_eq!(filter.limit, Some(DEFAULT_PACKAGES_LIMIT));
+
+        assert!(
+            ListUpdatesParams {
+                min_severity: Some("nope".to_string()),
+                limit: None,
+            }
+            .into_filter()
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn refresh_defaults_to_force() {
+        assert!(default_true());
+    }
+}

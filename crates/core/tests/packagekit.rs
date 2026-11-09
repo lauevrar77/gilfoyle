@@ -88,13 +88,103 @@ fn planned_actions_classify_transitive_changes() {
 
 #[test]
 fn exit_and_restart_names() {
-    assert_eq!(exit_name(pk_exit::SUCCESS), "success");
-    assert_eq!(exit_name(pk_exit::NEED_UNTRUSTED), "need-untrusted");
+    let cases = [
+        (pk_exit::SUCCESS, "success"),
+        (pk_exit::FAILED, "failed"),
+        (pk_exit::CANCELLED, "cancelled"),
+        (pk_exit::KEY_REQUIRED, "key-required"),
+        (pk_exit::EULA_REQUIRED, "eula-required"),
+        (pk_exit::KILLED, "killed"),
+        (pk_exit::NEED_UNTRUSTED, "need-untrusted"),
+    ];
+    for (exit, name) in cases {
+        assert_eq!(exit_name(exit), name);
+    }
     assert_eq!(exit_name(999), "unknown");
     assert_eq!(restart_name(pk_restart::SYSTEM), "system");
     assert_eq!(restart_name(pk_restart::SESSION), "session");
     assert_eq!(restart_name(pk_restart::APPLICATION), "application");
     assert_eq!(restart_name(0), "none");
+}
+
+#[test]
+fn info_names_cover_every_mapped_value() {
+    let cases = [
+        (pk_info::INSTALLED, "installed"),
+        (pk_info::AVAILABLE, "available"),
+        (pk_info::LOW, "low"),
+        (pk_info::ENHANCEMENT, "enhancement"),
+        (pk_info::NORMAL, "normal"),
+        (pk_info::BUGFIX, "bugfix"),
+        (pk_info::IMPORTANT, "important"),
+        (pk_info::SECURITY, "security"),
+        (pk_info::BLOCKED, "blocked"),
+        (pk_info::UNTRUSTED, "untrusted"),
+        (pk_info::TRUSTED, "trusted"),
+        (pk_info::CRITICAL, "critical"),
+        (pk_info::INSTALL, "install"),
+        (pk_info::REMOVE, "remove"),
+        (pk_info::OBSOLETE, "obsolete"),
+        (pk_info::DOWNGRADE, "downgrade"),
+    ];
+    for (info, name) in cases {
+        assert_eq!(info_name(info), name);
+    }
+    assert_eq!(info_name(999), "unknown");
+}
+
+#[test]
+fn severity_from_info_and_from_name() {
+    assert_eq!(Severity::from_info(pk_info::LOW), Some(Severity::Low));
+    assert_eq!(
+        Severity::from_info(pk_info::ENHANCEMENT),
+        Some(Severity::Low)
+    );
+    assert_eq!(Severity::from_info(pk_info::NORMAL), Some(Severity::Medium));
+    assert_eq!(Severity::from_info(pk_info::BUGFIX), Some(Severity::Medium));
+    assert_eq!(
+        Severity::from_info(pk_info::IMPORTANT),
+        Some(Severity::High)
+    );
+    assert_eq!(
+        Severity::from_info(pk_info::SECURITY),
+        Some(Severity::Critical)
+    );
+    assert_eq!(
+        Severity::from_info(pk_info::CRITICAL),
+        Some(Severity::Critical)
+    );
+    assert_eq!(Severity::from_info(pk_info::INSTALLED), None);
+
+    for (name, severity) in [
+        ("low", Severity::Low),
+        ("medium", Severity::Medium),
+        ("high", Severity::High),
+        ("critical", Severity::Critical),
+    ] {
+        assert_eq!(Severity::from_info_name(name), Some(severity));
+    }
+    assert_eq!(Severity::from_info_name("nope"), None);
+}
+
+#[test]
+fn plan_is_transitive_for_each_category_individually() {
+    for (install, remove, obsolete, downgrade) in
+        [(1, 0, 0, 0), (0, 1, 0, 0), (0, 0, 1, 0), (0, 0, 0, 1)]
+    {
+        let plan = UpgradePlan {
+            would_install: install,
+            would_remove: remove,
+            would_obsolete: obsolete,
+            would_downgrade: downgrade,
+            ..UpgradePlan::empty()
+        };
+        assert!(
+            plan.is_transitive(),
+            "{install},{remove},{obsolete},{downgrade}"
+        );
+    }
+    assert!(!UpgradePlan::empty().is_transitive());
 }
 
 #[test]
@@ -154,6 +244,14 @@ fn error_and_exit_mapping() {
     assert!(matches!(
         map_error_code(999, "x"),
         PackageError::Other { .. }
+    ));
+    assert!(matches!(
+        map_error_code(pk_error::NO_PACKAGES_TO_UPDATE, "none"),
+        PackageError::Failed { .. }
+    ));
+    assert!(matches!(
+        map_error_code(pk_error::BAD_GPG_SIGNATURE, "bad"),
+        PackageError::Untrusted(_)
     ));
     assert_eq!(map_exit_code(pk_exit::CANCELLED), PackageError::Cancelled);
     assert!(matches!(
@@ -295,6 +393,7 @@ fn update_filter_applies_min_severity() {
     .apply(updates);
     assert_eq!(list.total, 1);
     assert_eq!(list.updates[0].name, "a");
+    assert!(!list.truncated);
 }
 
 // --- collector ---
@@ -334,6 +433,7 @@ fn collector_builds_an_update_list() {
     assert_eq!(list.total, 1);
     assert_eq!(list.updates[0].info, "security");
     assert_eq!(list.updates[0].severity.as_deref(), Some("critical"));
+    assert!(!list.truncated);
 }
 
 #[test]
@@ -352,6 +452,7 @@ fn collector_builds_a_transitive_plan() {
     assert_eq!(plan.would_obsolete, 1);
     assert_eq!(plan.would_downgrade, 1);
     assert!(plan.is_transitive());
+    assert!(!plan.truncated);
 }
 
 #[test]
@@ -392,6 +493,7 @@ fn collector_builds_refresh_and_upgrade_reports() {
     assert!(report.success);
     assert_eq!(report.restart_required.as_deref(), Some("system"));
     assert_eq!(report.affected.len(), 1);
+    assert!(!report.affected_truncated);
 }
 
 #[test]
@@ -507,6 +609,110 @@ fn collector_ignores_repos_outside_refresh_and_malformed_ids() {
     let list = collector.into_package_list().unwrap();
     assert_eq!(list.packages.len(), 0);
     assert_eq!(list.total, 1);
+}
+
+#[test]
+fn update_filter_truncates_and_stamps_totals() {
+    let list = UpdateFilter {
+        min_severity: None,
+        limit: Some(1),
+    }
+    .apply(vec![update("a"), update("b")]);
+    assert_eq!(list.total, 2);
+    assert_eq!(list.updates.len(), 1);
+    assert!(list.truncated);
+}
+
+#[test]
+fn collector_truncates_update_and_plan_lists() {
+    let mut updates = Collector::new(TransactionKind::CheckUpdates, 1);
+    updates.push(pkg(pk_info::SECURITY, "a;1;amd64;d;"));
+    updates.push(pkg(pk_info::SECURITY, "b;1;amd64;d;"));
+    updates.push(finished());
+    let list = updates.into_update_list().unwrap();
+    assert_eq!(list.total, 2);
+    assert_eq!(list.updates.len(), 1);
+    assert!(list.truncated);
+
+    let mut plan = Collector::new(TransactionKind::Plan, 1);
+    plan.push(pkg(pk_info::SECURITY, "a;1;amd64;d;"));
+    plan.push(pkg(pk_info::SECURITY, "b;1;amd64;d;"));
+    plan.push(finished());
+    let plan = plan.into_upgrade_plan().unwrap();
+    assert_eq!(plan.total, 2);
+    assert_eq!(plan.planned.len(), 1);
+    assert!(plan.truncated);
+}
+
+#[test]
+fn collector_truncates_the_affected_list() {
+    let mut collector = Collector::new(TransactionKind::Apply, 1);
+    collector.push(pkg(pk_info::INSTALL, "a;1;amd64;d;"));
+    collector.push(pkg(pk_info::INSTALL, "b;1;amd64;d;"));
+    collector.push(finished());
+    let report = collector.into_upgrade_report().unwrap();
+    assert_eq!(report.affected.len(), 1);
+    assert!(report.affected_truncated);
+}
+
+#[test]
+fn collector_keeps_the_strongest_restart() {
+    for order in [
+        [pk_restart::SESSION, pk_restart::SYSTEM],
+        [pk_restart::SYSTEM, pk_restart::SESSION],
+    ] {
+        let mut collector = Collector::new(TransactionKind::Apply, 10);
+        for kind in order {
+            collector.push(PackageEvent::RequireRestart { kind });
+        }
+        collector.push(finished());
+        assert_eq!(
+            collector
+                .into_upgrade_report()
+                .unwrap()
+                .restart_required
+                .as_deref(),
+            Some("session")
+        );
+    }
+}
+
+#[test]
+fn collector_ignores_repos_unless_refreshing() {
+    let mut collector = Collector::new(TransactionKind::ListInstalled, 10);
+    collector.push(PackageEvent::RepoDetail {
+        id: "x".to_string(),
+        description: "x".to_string(),
+        enabled: true,
+    });
+    collector.push(finished());
+    assert!(collector.into_refresh_report().unwrap().repos.is_empty());
+}
+
+#[test]
+fn collector_caps_the_repository_list() {
+    let mut collector = Collector::new(TransactionKind::Refresh, 1);
+    for id in ["a", "b"] {
+        collector.push(PackageEvent::RepoDetail {
+            id: id.to_string(),
+            description: id.to_string(),
+            enabled: true,
+        });
+    }
+    collector.push(finished());
+    assert_eq!(collector.into_refresh_report().unwrap().repos.len(), 1);
+}
+
+#[test]
+fn collector_reports_finished_and_runtime() {
+    let mut collector = Collector::new(TransactionKind::Refresh, 10);
+    assert!(!collector.is_finished());
+    collector.push(PackageEvent::Finished {
+        exit: pk_exit::SUCCESS,
+        runtime_ms: 42,
+    });
+    assert!(collector.is_finished());
+    assert_eq!(collector.runtime_ms(), 42);
 }
 
 // --- service ---
