@@ -56,6 +56,51 @@ fn package_id_rejects_malformed() {
 }
 
 #[test]
+fn package_id_parses_the_apt_four_field_shape() {
+    // Regression: the APT backend emits `name;version;arch;data` with no
+    // separate DNF origin slot, so the fourth field carries the origin.
+    let id = PackageId::parse("adwaita-icon-theme;48.1-1;all;auto:debian-stable-main").unwrap();
+    assert_eq!(id.name(), "adwaita-icon-theme");
+    assert_eq!(id.version(), "48.1-1");
+    assert_eq!(id.architecture(), "all");
+    assert_eq!(id.origin(), "auto:debian-stable-main");
+    assert_eq!(
+        id.as_str(),
+        "adwaita-icon-theme;48.1-1;all;auto:debian-stable-main"
+    );
+}
+
+#[test]
+fn package_id_rejects_three_and_six_fields() {
+    for bad in [
+        "nginx;1.24.0;amd64",               // three fields: no origin slot
+        "nginx;1.24.0;amd64;debian;data;x", // six fields: too many
+    ] {
+        assert!(
+            matches!(PackageId::parse(bad), Err(DomainError::InvalidPackageId(_))),
+            "expected {bad:?} to be invalid"
+        );
+    }
+}
+
+#[test]
+fn collector_accepts_apt_four_field_ids() {
+    // Regression: the four-field APT shape used to be rejected id by id,
+    // silently emptying `list_packages`/`list_updates`/`preview_upgrade`.
+    let mut collector = Collector::new(TransactionKind::ListInstalled, 10);
+    collector.push(pkg(
+        pk_info::INSTALLED,
+        "adwaita-icon-theme;48.1-1;all;auto:debian-stable-main",
+    ));
+    collector.push(finished());
+    let list = collector.into_package_list().unwrap();
+    assert_eq!(list.total, 1);
+    assert_eq!(list.packages.len(), 1);
+    assert_eq!(list.packages[0].name, "adwaita-icon-theme");
+    assert_eq!(list.packages[0].origin, "auto:debian-stable-main");
+}
+
+#[test]
 fn package_id_accepts_empty_origin_and_data() {
     let id = PackageId::parse("foo;1;noarch;;").unwrap();
     assert_eq!(id.origin(), "");

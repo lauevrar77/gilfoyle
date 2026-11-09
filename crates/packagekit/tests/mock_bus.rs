@@ -340,6 +340,25 @@ async fn lists_installed_packages_batched() {
 }
 
 #[tokio::test]
+async fn lists_installed_packages_from_the_apt_four_field_shape() {
+    // Regression: the APT backend emits `name;version;arch;data`, not the
+    // five-field DNF shape. These ids used to be parsed to zero packages.
+    let adapter = connect(MockState::base().with_package(
+        pk_info::INSTALLED,
+        "adwaita-icon-theme;48.1-1;all;auto:debian-stable-main",
+    ))
+    .await
+    .unwrap();
+    let list = adapter
+        .list_installed(&PackageFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(list.total, 1);
+    assert_eq!(list.packages[0].name, "adwaita-icon-theme");
+    assert_eq!(list.packages[0].origin, "auto:debian-stable-main");
+}
+
+#[tokio::test]
 async fn lists_installed_packages_singular_signal() {
     // PackageKit <= 1.2.5 emits the singular `Package` signal.
     let mut state = MockState::base();

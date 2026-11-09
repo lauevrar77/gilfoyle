@@ -802,7 +802,7 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-client"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "futures-util",
  "gilfoyle-ssh",
@@ -817,7 +817,7 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-core"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-packagekit"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -852,7 +852,7 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-server"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "clap",
  "gilfoyle-client",
@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-ssh"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "rand",
  "rmcp",
@@ -885,14 +885,14 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-system"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "gilfoyle-core",
 ]
 
 [[package]]
 name = "gilfoyle-systemd"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "futures-util",

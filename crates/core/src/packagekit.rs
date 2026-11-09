@@ -136,7 +136,11 @@ pub fn update_flags(simulate: bool) -> u64 {
     trusted + simulate
 }
 
-/// A parsed PackageKit package identifier: `name;version;arch;origin;data`.
+/// A parsed PackageKit package identifier.
+///
+/// PackageKit defines the id as `name;version;arch;data`, but the DNF backend
+/// emits an extra `origin` field: `name;version;arch;origin;data`. Both shapes
+/// are accepted, because refusing one of them silently empties every result.
 ///
 /// The raw string is kept verbatim so it can be handed straight back to
 /// PackageKit (for example to `UpdatePackages`); the fields are exposed for
@@ -151,12 +155,14 @@ pub struct PackageId {
 }
 
 impl PackageId {
-    /// Parse a `name;version;arch;origin;data` identifier.
+    /// Parse a `name;version;arch;data` (APT) or
+    /// `name;version;arch;origin;data` (DNF) identifier.
     ///
-    /// Exactly five fields are required; the name and version must be non-empty.
+    /// Four or five fields are accepted; the name and version must be non-empty.
+    /// In both shapes the fourth field is the origin slot.
     pub fn parse(input: &str) -> Result<Self, DomainError> {
         let parts: Vec<&str> = input.split(';').collect();
-        if parts.len() != 5 {
+        if !matches!(parts.len(), 4 | 5) {
             return Err(DomainError::InvalidPackageId(input.to_string()));
         }
         let (name, version) = (parts[0], parts[1]);
