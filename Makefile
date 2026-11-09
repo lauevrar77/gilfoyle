@@ -1,7 +1,7 @@
 CARGO ?= cargo
 FUZZ_RUNS ?= 20000
 
-.PHONY: help build run fmt fmt-check lint test check mutants fuzz install-hooks
+.PHONY: help build run fmt fmt-check lint test check mutants fuzz package-release install-hooks
 
 help:
 	@echo "Gilfoyle — available targets:"
@@ -14,6 +14,7 @@ help:
 	@echo "  mutants       Run cargo-mutants and require a 100% score"
 	@echo "  fuzz          Run the fuzz targets (nightly, ASan)"
 	@echo "  check         fmt-check + lint + test + mutants"
+	@echo "  package-release Build + tarball the release artifacts into dist/"
 	@echo "  install-hooks Install the git pre-commit hook"
 
 build:
@@ -44,6 +45,9 @@ fuzz:
 	$(CARGO) fuzz run client_config -- -runs=$(FUZZ_RUNS)
 	$(CARGO) fuzz run unit_name -- -runs=$(FUZZ_RUNS)
 	$(CARGO) fuzz run package_id -- -runs=$(FUZZ_RUNS)
+
+package-release:
+	./scripts/package-release.sh
 
 check: fmt-check lint test mutants
 

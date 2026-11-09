@@ -17,7 +17,7 @@ SSH is used purely as a **protocol**: the server serves an MCP subsystem and ref
 ## Two roles
 
 - **Node** — the Gilfoyle process on one host. It serves that host over SSH and exposes the
-  five tools.
+  compiled tools.
 - **Client** — an aggregator that connects to several nodes and presents **one** MCP surface
   (over stdio) to the AI agent. Every tool takes a `node` argument; `all` fans a read out to
   every node. The client adds a `list_nodes` tool.
@@ -35,11 +35,16 @@ AI agent ──MCP(stdio)──▶ gilfoyle client ──SSH──▶ gilfoyle n
   refuses `shell`, `exec`, `pty` and every forwarding request, in code.
 - `unsafe` is forbidden workspace-wide in our crates, and `clippy::disallowed_methods`
   makes any reference to `std::process::Command` a **compile error**.
-- systemd is reached over **in-process D-Bus**, never by spawning `systemctl`.
+- systemd and PackageKit are reached over **in-process D-Bus**, never by spawning
+  `systemctl` or `apt`.
 - Authentication is **public key only** (`none`, `password` and `keyboard-interactive` are
   refused). Each key may carry a **tool grant**; a read-only key cannot reach a mutation.
 - Mutations are **default-deny**: `start_unit` and `stop_unit` act only on units listed in
-  `[systemd] manage_units`, and polkit is the authority behind them.
+  `[systemd] manage_units`, `refresh_package_cache` and `upgrade_packages` act only on the
+  operations listed in `[packagekit] allow`, and polkit is the authority behind them.
+- **No install, no remove, by construction**: the package operation vocabulary is a closed
+  enum with no install/remove variant, and an upgrade that would install or remove a package
+  is refused.
 - Configuration is fail-closed: no `bind`, no key or no host key means no start.
 - The client **pins** each node's host-key fingerprint; a mismatch fails the connection.
 
@@ -53,17 +58,35 @@ graph.
 | `gilfoyle-core` | domain types, ports, use cases | none |
 | `gilfoyle-system` | driven adapter (host uptime) | read-only |
 | `gilfoyle-systemd` | driven adapter (systemd over D-Bus) | system bus |
+| `gilfoyle-packagekit` | driven adapter (PackageKit over D-Bus) | system bus |
 | `gilfoyle-ssh` | driving adapter: embedded SSH server (russh) + auth/channel policy | network |
 | `gilfoyle-client` | driving adapter: multi-node aggregator | network |
 | `gilfoyle-server` | MCP handler, config, wiring + the `gilfoyle` binary | network |
 
 ## Requirements
 
+**Build.**
+
 - Rust **1.89** or newer (the pinned toolchain in `.tool-versions` is a recent nightly).
-- A Linux host: `/proc/uptime` for the uptime tool, and a system D-Bus (`systemd`) for the
-  unit tools.
-- A C toolchain: the SSH crypto backend is `ring`, so the build is no longer pure Rust and
+- A C toolchain: the SSH crypto backend is `ring`, so the build is not pure Rust and
   releases are dynamically linked (the old static-musl artifact is gone).
+
+**Run (node).**
+
+- A Linux host with **systemd** and an accessible system D-Bus (needed by the unit tools).
+- `/proc/uptime` for the uptime tool.
+- **polkit** (`polkitd`) — only to authorise `start_unit`/`stop_unit`. Reads need none.
+- **PackageKit** *and a backend* (APT on Debian/Ubuntu, DNF on Rocky) — only for the package
+  tools. It is not installed by default on a minimal host; when absent the package tools
+  report a clear error. A backend package such as `packagekit` (plus `apt`/`dnf`) must be
+  present and `packagekitd` reachable on the system bus.
+- The system bus, polkit and PackageKit are reached over `AF_UNIX`; the hardened unit
+  already allows it.
+
+**Run (client).**
+
+- Nothing beyond the `gilfoyle` binary: the client speaks SSH with its own pinned host-key
+  fingerprints. A C crypto backend (`ring`) is linked in.
 
 ## Quickstart (node)
 
@@ -326,6 +349,17 @@ Tagged releases ship a **dynamically linked GNU** binary, a checksum and the dep
 files:
 
 <https://forge.evrard.online:3000/laurent/gilfoyle/releases>
+
+Build a release artifact with:
+
+```sh
+make package-release            # writes dist/gilfoyle-<version>-x86_64-unknown-linux-gnu.tar.gz
+```
+
+The tarball holds the `gilfoyle` binary, `gilfoyle.service` and the example polkit rules
+(units and packages), plus `README.md` and `INSTALL.md`. Tag the commit (`git tag vX.Y.Z`),
+create the release, and attach the `.tar.gz` and its `.sha256`. The client uses the same
+binary (`gilfoyle client`).
 
 ## License
 

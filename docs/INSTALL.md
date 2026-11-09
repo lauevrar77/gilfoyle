@@ -14,7 +14,14 @@ The node is what the systemd unit and polkit rule below install.
 - A Linux host with systemd (the unit tools use the system bus).
 - The `gilfoyle` binary and the files in this repo (`packaging/`, `docs/`).
 - `polkit` **only if** you want to start/stop units (reads work without it).
-- The binary is dynamically linked; no static build is produced any more.
+- `PackageKit` **and a backend** (APT on Debian/Ubuntu, DNF on Rocky) **only if** you want
+  the package tools. It is not present on a minimal host; without it the package tools
+  report "PackageKit is unavailable". Install order: the backend first, then `packagekit`,
+  then verify `packagekitd` is reachable on the system bus.
+- The binary is dynamically linked (the SSH crypto backend `ring` needs a C toolchain).
+
+Each answer below (bind address and port, managed units, package operations, client keys)
+is a **choice**. Do not invent one: ask, and wait for the answer.
 
 ## Fresh install (node)
 
@@ -135,7 +142,9 @@ sudo systemctl restart gilfoyle
 systemctl status gilfoyle --no-pager
 ```
 
-If `[systemd] manage_units` changed, regenerate the polkit rule and restart.
+If `[systemd] manage_units` changed, regenerate the unit polkit rule; if `[packagekit] allow`
+changed, regenerate the package polkit rule; then restart. Both `gilfoyle * polkit-rule`
+commands are in "Fresh install" above.
 
 ### From the old HTTP / bearer-token build
 
@@ -183,32 +192,48 @@ Give a shell-capable agent (with `sudo`) the prompt below, filling in the parame
 works for a fresh install and, with `MODE=update`, for a migration from the old build.
 
 ```text
-You are installing or updating gilfoyle, a secure MCP server, on this Linux host. Follow the
-steps exactly, use sudo where needed, and stop and show me the error if anything fails.
-Never log any secret, and never run gilfoyle as root.
+You are installing or updating gilfoyle, a secure MCP server, on this Linux host. Use sudo
+where needed, and stop and show me the error if anything fails. Never log a secret, and
+never run gilfoyle as root.
 
-Parameters (ask me if a value is missing):
-  MODE          = install | update
-  GILFOYLE_BIN  = <path to the built `gilfoyle` binary>
-  REPO          = <path to the gilfoyle checkout, for packaging/ and docs/>
-  BIND          = <address:port to listen on, e.g. 10.0.0.5:2222>
-  MANAGED_UNITS = <systemd units that may be started/stopped, or empty for read-only>
-  CLIENT_KEYS   = <one or more OpenSSH public keys allowed to connect>
+This host is one of:
+  - a Node   — the gilfoyle process administered here (the subject of this prompt);
+  - a Client — an aggregator, run on the operator's machine. If that is what I want, say so
+               and switch to docs/INSTALL.md "Client setup" instead of the steps below.
 
-Steps (fresh install):
-1. Follow docs/INSTALL.md "Fresh install (node)": create the gilfoyle user, install the
-   binary, create /etc/gilfoyle, run `gilfoyle ssh keygen`, chown the host key to gilfoyle.
+Do NOT assume any value below. Ask me each question, one at a time, and wait for my answer
+before continuing. If an answer is incomplete or inconsistent, ask again. Only start once
+every choice is settled, and echo the final set back to me for confirmation.
+
+Questions (skip one only if its "no" branch is chosen):
+  Q1. MODE — fresh install, or update an existing install? If updating, is it from an SSH
+      build (same config schema) or from the old HTTP/bearer-token build? See "Updating".
+  Q2. GILFOYLE_BIN — the path to the built `gilfoyle` binary.
+  Q3. REPO — the path to the gilfoyle checkout (for packaging/ and docs/).
+  Q4. BIND — the address and SSH port to listen on, e.g. 10.0.0.5:2222. Confirm the port is
+      free and reachable by the clients.
+  Q5. CLIENT_KEYS — the OpenSSH public key(s) allowed to connect. Ask for at least one; if I
+      give none, refuse to continue.
+  Q6. MANAGED_UNITS — the systemd units that may be started/stopped, or none for read-only.
+  Q7. PACKAGE_OPS — whether to enable package operations, and which: none, "refresh"
+      (apt update), or "refresh" + "upgrade" (apt upgrade). There is never an install or
+      remove. If not none, ask whether PackageKit and a backend are already installed.
+  Q8. TOOL_GRANTS — whether each client key is narrowed to a subset of tools or inherits
+      [tools] enabled.
+
+Then:
+1. Fresh install: follow docs/INSTALL.md "Fresh install (node)" with my answers. Update:
+   follow the matching section under "Updating".
 2. Write /etc/gilfoyle/config.toml (0640 root:gilfoyle) with bind, host_key, [tools] enabled,
-   [systemd] manage_units = MANAGED_UNITS, and one [[keys]] per key in CLIENT_KEYS.
+   [systemd] manage_units, [packagekit] allow, and one [[keys]] per key in CLIENT_KEYS.
 3. Install packaging/gilfoyle.service, daemon-reload, enable --now gilfoyle.
-4. If MANAGED_UNITS is not empty: install polkit, then install the generated rule with
+4. If MANAGED_UNITS is not empty: ensure polkit is installed, then
    `gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules`.
-5. Verify: `ss -ltnp | grep gilfoyle` shows BIND; `systemctl status gilfoyle` is active.
-6. Report back the node's SSH URL (host:port) and the `SHA256:...` host-key fingerprint
-   exactly once so I can configure clients. Report nothing else secret.
-
-Steps (update from the old HTTP build): follow docs/INSTALL.md "From the old HTTP /
-bearer-token build" instead of step 1–3 above.
+5. If PACKAGE_OPS is not empty: ensure PackageKit and its backend are installed, then
+   `gilfoyle packagekit polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-packagekit.rules`.
+6. Verify: `ss -ltnp | grep gilfoyle` shows BIND; `systemctl status gilfoyle` is active.
+7. Report back the node's SSH host:port and its `SHA256:...` host-key fingerprint exactly
+   once, so I can configure clients. Report nothing else secret.
 ```
 
 ## Files the install touches
@@ -220,4 +245,5 @@ bearer-token build" instead of step 1–3 above.
 | `/etc/gilfoyle/ssh_host_ed25519_key` | node host key (`0600 gilfoyle`) |
 | `/etc/gilfoyle/env` | optional `GILFOYLE_*` overrides (not secrets any more) |
 | `/etc/systemd/system/gilfoyle.service` | the hardened unit |
-| `/etc/polkit-1/rules.d/49-gilfoyle-units.rules` | generated polkit rule |
+| `/etc/polkit-1/rules.d/49-gilfoyle-units.rules` | generated polkit rule (unit control) |
+| `/etc/polkit-1/rules.d/49-gilfoyle-packagekit.rules` | generated polkit rule (packages) |

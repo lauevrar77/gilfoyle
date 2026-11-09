@@ -2,17 +2,19 @@
 
 Gilfoyle is a Rust MCP server exposing Linux administration tools over SSH, authenticated by
 public key. There is no shell here: tools are compiled functions with fixed behaviour. Reads
-are open; the only mutations are starting and stopping systemd units, and only for units the
+are open; the only mutations are starting and stopping allowlisted systemd units and
+refreshing or upgrading packages (never installing or removing them), for operations the
 operator has allowlisted.
 
 ## Architecture: dependencies point inward
 
-Six crates, and the dependency graph is the enforcement.
+Seven crates, and the dependency graph is the enforcement.
 
 - `gilfoyle-core` — pure. Domain types, ports (traits), use cases. No I/O, no async runtime,
   no `rmcp`, no `russh`, no `zbus`.
 - `gilfoyle-system` — driven adapter for the host uptime (`/proc/uptime`).
 - `gilfoyle-systemd` — driven adapter for systemd, over in-process D-Bus.
+- `gilfoyle-packagekit` — driven adapter for PackageKit, over in-process D-Bus.
 - `gilfoyle-ssh` — driving adapter: the embedded SSH server (`russh`), the pure
   auth/channel policy, and the MCP-over-channel bridge.
 - `gilfoyle-client` — driving adapter: the multi-node aggregator (russh client + MCP proxy).
@@ -28,12 +30,17 @@ existing one.
 - SSH is a protocol, not a shell: only the `gilfoyle-mcp` subsystem is served; `shell`,
   `exec`, `pty` and all forwarding are refused in code.
 - Authentication is public key only. A key's tool grant can only narrow `[tools] enabled`.
-- I/O lives only in adapters. systemd is reached over D-Bus in-process, never by spawning
-  `systemctl`.
+- I/O lives only in adapters. systemd and PackageKit are reached over D-Bus in-process,
+  never by spawning `systemctl` or `apt`.
 - `unsafe` is forbidden in our crates, and `clippy::disallowed_methods` rejects
   `std::process::Command` at compile time.
 - Mutations are default-deny: `start_unit` and `stop_unit` only act on units listed in
-  `[systemd] manage_units`, and polkit is the authority behind them.
+  `[systemd] manage_units`, `refresh_package_cache` and `upgrade_packages` only act on the
+  operations in `[packagekit] allow`, and polkit is the authority behind them.
+- Never install or remove a package: the operation vocabulary is a closed enum with no
+  install/remove variant, every update carries `ONLY_TRUSTED`, and an upgrade whose plan
+  would install or remove a package is refused (unless the operator opts into transitive
+  changes).
 - Secrets never reach logs or error messages; client keys stay `0600` and host-key
   fingerprints are pinned by the client.
 - Configuration is fail-closed: no `bind`, no key or no host key means no start.
@@ -44,8 +51,9 @@ existing one.
 mutation score stays at 100%: a surviving mutant fails the run. The excluded glue is the
 composition root (`main.rs`) and the thin `russh`/`rmcp` transport wiring
 (`gilfoyle-ssh`'s `adapter`/`hostkey`, `gilfoyle-client`'s `node`/`lib`, the server's
-`serve`) — their decisions live in pure, tested modules. The systemd adapter is covered by an
-in-process mock bus, and the SSH transport by an in-process `russh` client/server pair.
+`serve`) — their decisions live in pure, tested modules. The systemd and PackageKit adapters
+are covered by in-process mock buses, and the SSH transport by an in-process `russh`
+client/server pair.
 
 ## Adding a tool
 
@@ -61,7 +69,7 @@ If the tool is a read, add it to `gilfoyle-client`'s read set so it can be fanne
 - `README.md` — what gilfoyle is, configuration, usage, threat model.
 - `docs/INSTALL.md` — install and update a node; includes a prompt for an install agent.
 - `GLOSSARY.md` — the domain vocabulary; keep it free of implementation detail.
-- `docs/adr/` — decisions worth remembering (see 0005 and 0006 for the SSH transport and
-  key authentication).
+- `docs/adr/` — decisions worth remembering (0005/0006 for the SSH transport and key
+  authentication; 0007–0009 for the PackageKit surface and its no-install guarantee).
 - `Makefile` — every task; run `make help`.
 - `fuzz/` — an independent workspace; `make fuzz` runs it on nightly with ASan.
