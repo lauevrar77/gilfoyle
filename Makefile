@@ -39,8 +39,9 @@ mutants:
 
 fuzz:
 	$(CARGO) fuzz run uptime_parse -- -runs=$(FUZZ_RUNS)
-	$(CARGO) fuzz run bearer_header -- -runs=$(FUZZ_RUNS)
+	$(CARGO) fuzz run authorized_key -- -runs=$(FUZZ_RUNS)
 	$(CARGO) fuzz run config_toml -- -runs=$(FUZZ_RUNS)
+	$(CARGO) fuzz run client_config -- -runs=$(FUZZ_RUNS)
 	$(CARGO) fuzz run unit_name -- -runs=$(FUZZ_RUNS)
 	$(CARGO) fuzz run package_id -- -runs=$(FUZZ_RUNS)
 

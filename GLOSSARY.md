@@ -3,6 +3,28 @@
 Gilfoyle is a secure MCP server that administers a Linux host through narrow, allowlisted
 capabilities. This glossary fixes the language of that domain.
 
+## Topology
+
+**Node**:
+A single Gilfoyle process on one host; it serves that host and exposes tools over SSH.
+_Avoid_: server, agent, host, machine
+
+**Node label**:
+The name a Client gives a Node; it is the value of a tool call's `node` argument.
+_Avoid_: machine name, alias, hostname
+
+**Client**:
+The aggregator that holds connections to one or more Nodes and presents a single MCP surface.
+_Avoid_: gateway, hub, proxy, server
+
+**Agent**:
+The AI that consumes MCP and decides which tools to call. Never a Node.
+_Avoid_: assistant, model, bot
+
+**Session**:
+One subsystem channel between a Client and a Node, carrying one MCP conversation. A connection may carry several.
+_Avoid_: connection, stream
+
 ## Host and units
 
 **Unit**:
@@ -94,6 +116,20 @@ _Avoid_: signed package
 A package that is unsigned or cannot be verified. Gilfoyle always refuses it, and never
 trusts a new signing key.
 _Avoid_: unsigned package
+
+## Trust
+
+**Principal**:
+The authenticated identity of a connection: the id of the key that signed it.
+_Avoid_: user, token, account
+
+**Host key**:
+The private key a Node proves its identity with; a Client pins its fingerprint.
+_Avoid_: server key, machine key
+
+**Authorized key**:
+A client public key a Node accepts, optionally limited to a set of tools.
+_Avoid_: token, credential, API key
 
 ## Measurements
 

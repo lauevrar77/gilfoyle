@@ -9,8 +9,8 @@ Type=simple
 User=gilfoyle
 Group=gilfoyle
 ExecStart=/usr/local/bin/gilfoyle --config /etc/gilfoyle/config.toml
-# Put secrets here, e.g. GILFOYLE_TOKEN_ADMIN=<plaintext>, one per line.
-EnvironmentFile=/etc/gilfoyle/env
+# Optional overrides, e.g. GILFOYLE_BIND=0.0.0.0:2222 or GILFOYLE_LOG=debug, one per line.
+EnvironmentFile=-/etc/gilfoyle/env
 Restart=on-failure
 RestartSec=2
 

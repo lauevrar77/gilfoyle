@@ -6,11 +6,13 @@ members = [
     "crates/systemd",
     "crates/packagekit",
     "crates/server",
+    "crates/ssh",
+    "crates/client",
 ]
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.89"
 license = "MIT OR Apache-2.0"
@@ -20,13 +22,13 @@ gilfoyle-core = { path = "crates/core" }
 gilfoyle-system = { path = "crates/system" }
 gilfoyle-systemd = { path = "crates/systemd" }
 gilfoyle-packagekit = { path = "crates/packagekit" }
+gilfoyle-ssh = { path = "crates/ssh" }
+gilfoyle-client = { path = "crates/client" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = "1"
 thiserror = "2"
-sha2 = "0.10"
-subtle = "2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"] }
 clap = { version = "4", features = ["derive"] }
@@ -35,11 +37,10 @@ async-trait = "0.1"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 zbus_systemd = { version = "0.26201", default-features = false, features = ["systemd1", "zbus-async-tokio"] }
+russh = { version = "0.65", default-features = false, features = ["ring"] }
 
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
-axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
-tower-http = { version = "0.6", default-features = false, features = ["limit"] }
-rmcp = { version = "3.8", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time", "io-util"] }
+rmcp = { version = "3.8", default-features = false, features = ["server", "macros", "client", "transport-io"] }
 
 [profile.release]
 lto = true

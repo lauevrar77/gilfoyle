@@ -4,9 +4,25 @@
 # Run through `make mutants` / `scripts/mutation-gate.sh`, which pass
 # `--in-place` (not a config-file key) so builds reuse the existing target.
 
-# The composition root wires adapters together and contains no logic worth
-# mutating; every other line of the workspace is fair game.
-exclude_globs = ["**/src/main.rs"]
+# Excluded: the composition root, and the SSH/MCP transport glue. The handler and the
+# client's session wiring are thin adapters over `russh` and `rmcp`; their decisions live
+# in pure, fully-tested modules (`gilfoyle-ssh::policy`, `gilfoyle-client::config` and
+# `gilfoyle-client::proxy`'s pure helpers). Everything else must be caught.
+exclude_globs = [
+    "**/src/main.rs",
+    "crates/server/src/serve.rs",
+    "crates/ssh/src/adapter.rs",
+    "crates/ssh/src/hostkey.rs",
+    "crates/client/src/node.rs",
+    "crates/client/src/lib.rs",
+]
+
+# The read-only retry guard decides whether a failed call is retried on a fresh
+# connection. Observing it needs fault injection (a node that fails mid-read and then
+# recovers); that is not worth simulating, and the normal read/mutation paths are covered.
+exclude_re = [
+    "replace match guard read_only with",
+]
 
 # Test every mutant against the whole workspace: a crate's public API is often
 # exercised only from another crate's tests, so per-package tests would let

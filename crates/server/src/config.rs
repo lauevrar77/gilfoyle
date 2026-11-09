@@ -1,85 +1,105 @@
 //! Configuration loading and validation.
 //!
-//! Loading is fail-closed: the server refuses to start without at least one
-//! usable token, and refuses to bind a non-loopback address unless the
-//! operator opts in with `allow_public = true`.
+//! Loading is fail-closed: the server refuses to start without a `bind` address and at
+//! least one authorized key. A configuration from the HTTP era (tokens, host/origin
+//! allowlists, `allow_public`) is rejected with a migration message.
 
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::PathBuf;
 
 use gilfoyle_core::{Allowlist, PackageAllowlist, PackageOperation, UnitName};
+use gilfoyle_ssh::{AuthorizedKeys, KeyError};
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::auth::TokenEntry;
-use crate::hash::{HASH_LEN, parse_hex_32, sha256};
-
 /// Default path of the TOML configuration file.
 pub const DEFAULT_CONFIG_PATH: &str = "/etc/gilfoyle/config.toml";
-/// Default bind address (loopback only).
-pub const DEFAULT_BIND: &str = "127.0.0.1:8765";
+/// Default path of the SSH host key.
+pub const DEFAULT_HOST_KEY_PATH: &str = "/etc/gilfoyle/ssh_host_ed25519_key";
 /// Default log level.
 pub const DEFAULT_LOG_LEVEL: &str = "info";
-/// Default directory holding per-token hash files.
-pub const DEFAULT_TOKEN_DIR: &str = "/etc/gilfoyle/tokens";
+/// Default cap on simultaneous connections.
+pub const DEFAULT_MAX_CONNECTIONS: usize = 32;
+/// Default cap on channels (MCP sessions) per connection.
+pub const DEFAULT_MAX_CHANNELS_PER_CONNECTION: usize = 8;
+
+/// Every tool a node can expose.
+pub const KNOWN_TOOLS: [&str; 10] = [
+    "get_uptime",
+    "list_units",
+    "unit_status",
+    "start_unit",
+    "stop_unit",
+    "list_packages",
+    "list_updates",
+    "preview_upgrade",
+    "refresh_package_cache",
+    "upgrade_packages",
+];
+
+/// The known tools as a set.
+pub fn known_tools() -> BTreeSet<String> {
+    KNOWN_TOOLS.iter().map(|name| name.to_string()).collect()
+}
 
 /// Configuration errors.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ConfigError {
+    /// No bind address was configured.
+    #[error("no bind address: set `bind` to an `address:port`")]
+    MissingBind,
     /// The bind address could not be parsed.
     #[error("invalid bind address: {0}")]
     InvalidBind(String),
-    /// A non-loopback bind was requested without `allow_public`.
-    #[error("refusing to bind non-loopback address {0} without allow_public = true")]
-    PublicBindWithoutOptIn(SocketAddr),
-    /// No tokens were configured.
-    #[error("at least one token must be configured (fail-closed)")]
-    NoTokens,
-    /// A token id was empty or whitespace.
-    #[error("token id must not be empty")]
-    EmptyTokenId,
-    /// Two tokens shared an id.
-    #[error("duplicate token id: {0}")]
-    DuplicateTokenId(String),
-    /// A configured hash was not 64 hex characters.
-    #[error("token `{0}` has an invalid sha256 (expected 64 hex characters)")]
-    InvalidHash(String),
-    /// No secret could be found for a token.
-    #[error(
-        "token `{0}` has no secret: set GILFOYLE_TOKEN_<ID>, add a hash file, or set sha256 inline"
-    )]
-    MissingSecret(String),
+    /// No authorized keys were configured.
+    #[error("at least one authorized key must be configured (fail-closed)")]
+    NoKeys,
+    /// An authorized key id was empty.
+    #[error("authorized key id must not be empty")]
+    EmptyKeyId,
+    /// Two authorized keys shared an id.
+    #[error("duplicate authorized key id: {0}")]
+    DuplicateKeyId(String),
+    /// A public key could not be parsed.
+    #[error("key `{0}` has an invalid public key: {1}")]
+    InvalidPublicKey(String, String),
+    /// A key granted a tool that does not exist.
+    #[error("key `{0}` grants an unknown tool: `{1}`")]
+    UnknownTool(String, String),
+    /// `[tools] enabled` listed a tool that does not exist.
+    #[error("`[tools] enabled` lists an unknown tool: `{0}`")]
+    UnknownEnabledTool(String),
     /// A `[systemd] manage_units` entry was not a valid unit name.
     #[error("invalid unit in [systemd] manage_units: {0}")]
     InvalidManagedUnit(String),
     /// A `[packagekit] allow` entry was not `refresh` or `upgrade`.
     #[error("invalid operation in [packagekit] allow: {0}")]
     InvalidPackageOperation(String),
+    /// A field from the HTTP-era configuration was found.
+    #[error("`{0}` is from the old HTTP configuration and is no longer supported; remove it")]
+    LegacyField(String),
 }
 
-/// Raw TOML shape, all fields optional so a partial or absent file is valid.
+/// Raw TOML shape, all fields optional so a partial file is valid.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawConfig {
-    /// Bind address, e.g. `"127.0.0.1:8765"`.
+    /// Bind address, e.g. `"0.0.0.0:2222"`. Mandatory.
     #[serde(default)]
     pub bind: Option<String>,
-    /// Opt-in required to bind a non-loopback address.
+    /// Path to the SSH host key.
     #[serde(default)]
-    pub allow_public: bool,
-    /// Host header allowlist for the MCP transport.
-    #[serde(default)]
-    pub allowed_hosts: Vec<String>,
-    /// Origin header allowlist for the MCP transport.
-    #[serde(default)]
-    pub allowed_origins: Vec<String>,
+    pub host_key: Option<String>,
     /// Log level (tracing filter).
     #[serde(default)]
     pub log_level: Option<String>,
-    /// Directory holding per-token hash files.
+    /// Cap on simultaneous connections.
     #[serde(default)]
-    pub token_dir: Option<String>,
+    pub max_connections: Option<usize>,
+    /// Cap on channels per connection.
+    #[serde(default)]
+    pub max_channels_per_connection: Option<usize>,
     /// Tool exposure settings.
     #[serde(default)]
     pub tools: RawTools,
@@ -89,9 +109,24 @@ pub struct RawConfig {
     /// package settings.
     #[serde(default)]
     pub packagekit: RawPackagekit,
-    /// Configured tokens.
+    /// Authorized client keys.
     #[serde(default)]
-    pub tokens: Vec<RawToken>,
+    pub keys: Vec<RawKey>,
+    /// Legacy (HTTP era) field, rejected when present.
+    #[serde(default)]
+    pub tokens: Option<toml::Value>,
+    /// Legacy (HTTP era) field, rejected when present.
+    #[serde(default)]
+    pub allow_public: Option<bool>,
+    /// Legacy (HTTP era) field, rejected when present.
+    #[serde(default)]
+    pub allowed_hosts: Option<toml::Value>,
+    /// Legacy (HTTP era) field, rejected when present.
+    #[serde(default)]
+    pub allowed_origins: Option<toml::Value>,
+    /// Legacy (HTTP era) field, rejected when present.
+    #[serde(default)]
+    pub token_dir: Option<String>,
 }
 
 /// Raw `[systemd]` section.
@@ -125,37 +160,39 @@ pub struct RawPackagekit {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RawTools {
-    /// Explicit allowlist of enabled tools; `None` means "all compiled tools".
+    /// Explicit allowlist of enabled tools; `None` means all compiled tools.
     #[serde(default)]
     pub enabled: Option<Vec<String>>,
 }
 
-/// Raw `[[tokens]]` entry.
+/// Raw `[[keys]]` entry.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RawToken {
-    /// Stable identifier for the token (used for audit and revocation).
+pub struct RawKey {
+    /// Stable identifier, used as the principal and in logs.
     pub id: String,
-    /// Optional inline SHA-256 hash (64 hex characters) of the secret.
+    /// An OpenSSH public key line.
+    pub public_key: String,
+    /// Optional tool grant; `None` inherits `[tools] enabled`.
     #[serde(default)]
-    pub sha256: Option<String>,
+    pub tools: Option<Vec<String>>,
 }
 
 /// Fully resolved, validated configuration.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Config {
     /// Address the server binds to.
     pub bind: SocketAddr,
-    /// Whether binding a non-loopback address was explicitly allowed.
-    pub allow_public: bool,
-    /// Host header allowlist.
-    pub allowed_hosts: Vec<String>,
-    /// Origin header allowlist.
-    pub allowed_origins: Vec<String>,
+    /// Path to the SSH host key.
+    pub host_key: PathBuf,
     /// Log level.
     pub log_level: String,
-    /// Enabled tool allowlist; `None` means all compiled tools.
-    pub enabled_tools: Option<BTreeSet<String>>,
+    /// Cap on simultaneous connections.
+    pub max_connections: usize,
+    /// Cap on channels per connection.
+    pub max_channels_per_connection: usize,
+    /// Tools enabled globally; each key inherits or narrows this.
+    pub enabled_tools: BTreeSet<String>,
     /// Units that may be started or stopped.
     pub allowlist: Allowlist,
     /// Package operations that may be performed.
@@ -166,59 +203,92 @@ pub struct Config {
     pub package_poll_timeout_seconds: Option<u64>,
     /// Maximum number of package entries returned in a report.
     pub package_default_limit: Option<usize>,
-    /// Resolved token entries.
-    pub tokens: Vec<TokenEntry>,
+    /// Authorized client keys.
+    pub keys: AuthorizedKeys,
 }
 
 /// Parse a bind address.
 pub fn parse_bind(input: &str) -> Result<SocketAddr, ConfigError> {
     input
+        .trim()
         .parse()
         .map_err(|_| ConfigError::InvalidBind(input.to_string()))
 }
 
 /// Resolve a raw configuration into a validated [`Config`].
 ///
-/// `env` and `read_file` are injected so the resolution logic stays pure and
-/// unit-testable without touching the process environment or the filesystem.
+/// `env` is injected so the resolution logic stays pure and unit-testable.
 pub fn resolve_config(
     raw: RawConfig,
     env: &dyn Fn(&str) -> Option<String>,
-    read_file: &dyn Fn(&Path) -> Option<String>,
 ) -> Result<Config, ConfigError> {
+    reject_legacy(&raw)?;
+
     let bind_str = env("GILFOYLE_BIND")
         .or(raw.bind)
-        .unwrap_or_else(|| DEFAULT_BIND.to_string());
+        .ok_or(ConfigError::MissingBind)?;
     let bind = parse_bind(&bind_str)?;
-    if !raw.allow_public && !bind.ip().is_loopback() {
-        return Err(ConfigError::PublicBindWithoutOptIn(bind));
-    }
+
+    let host_key = PathBuf::from(
+        env("GILFOYLE_HOST_KEY")
+            .or(raw.host_key)
+            .unwrap_or_else(|| DEFAULT_HOST_KEY_PATH.to_string()),
+    );
 
     let log_level = env("GILFOYLE_LOG")
         .or(raw.log_level)
         .unwrap_or_else(|| DEFAULT_LOG_LEVEL.to_string());
 
-    let token_dir = raw
-        .token_dir
-        .unwrap_or_else(|| DEFAULT_TOKEN_DIR.to_string());
-    let tokens = resolve_tokens(&raw.tokens, env, read_file, Path::new(&token_dir))?;
-    let allowlist = resolve_allowlist(&raw.systemd.manage_units)?;
-    let package_allowlist = resolve_package_allowlist(&raw.packagekit.allow)?;
-
     Ok(Config {
         bind,
-        allow_public: raw.allow_public,
-        allowed_hosts: raw.allowed_hosts,
-        allowed_origins: raw.allowed_origins,
+        host_key,
         log_level,
-        enabled_tools: raw.tools.enabled.map(|ids| ids.into_iter().collect()),
-        allowlist,
-        package_allowlist,
+        max_connections: raw.max_connections.unwrap_or(DEFAULT_MAX_CONNECTIONS),
+        max_channels_per_connection: raw
+            .max_channels_per_connection
+            .unwrap_or(DEFAULT_MAX_CHANNELS_PER_CONNECTION),
+        enabled_tools: resolve_enabled(raw.tools.enabled)?,
+        allowlist: resolve_allowlist(&raw.systemd.manage_units)?,
+        package_allowlist: resolve_package_allowlist(&raw.packagekit.allow)?,
         allow_transitive_changes: raw.packagekit.allow_transitive_changes,
         package_poll_timeout_seconds: raw.packagekit.poll_timeout_seconds,
         package_default_limit: raw.packagekit.default_limit,
-        tokens,
+        keys: resolve_keys(&raw.keys)?,
     })
+}
+
+fn reject_legacy(raw: &RawConfig) -> Result<(), ConfigError> {
+    let legacy = [
+        (raw.tokens.is_some(), "[[tokens]]"),
+        (raw.allow_public.is_some(), "allow_public"),
+        (raw.allowed_hosts.is_some(), "allowed_hosts"),
+        (raw.allowed_origins.is_some(), "allowed_origins"),
+        (raw.token_dir.is_some(), "token_dir"),
+    ];
+    for (present, name) in legacy {
+        if present {
+            return Err(ConfigError::LegacyField(name.to_string()));
+        }
+    }
+    Ok(())
+}
+
+/// Resolve the global tool set, defaulting to every known tool.
+pub fn resolve_enabled(enabled: Option<Vec<String>>) -> Result<BTreeSet<String>, ConfigError> {
+    match enabled {
+        None => Ok(known_tools()),
+        Some(names) => {
+            let known = known_tools();
+            let mut set = BTreeSet::new();
+            for name in names {
+                if !known.contains(&name) {
+                    return Err(ConfigError::UnknownEnabledTool(name));
+                }
+                set.insert(name);
+            }
+            Ok(set)
+        }
+    }
 }
 
 /// Normalise the managed-unit allowlist. Invalid names fail the load (fail-closed).
@@ -244,53 +314,34 @@ pub fn resolve_package_allowlist(operations: &[String]) -> Result<PackageAllowli
     Ok(PackageAllowlist::new(resolved))
 }
 
-fn resolve_tokens(
-    raw_tokens: &[RawToken],
-    env: &dyn Fn(&str) -> Option<String>,
-    read_file: &dyn Fn(&Path) -> Option<String>,
-    token_dir: &Path,
-) -> Result<Vec<TokenEntry>, ConfigError> {
-    let mut seen: BTreeSet<&str> = BTreeSet::new();
-    let mut entries = Vec::with_capacity(raw_tokens.len());
-    for raw in raw_tokens {
-        if raw.id.trim().is_empty() {
-            return Err(ConfigError::EmptyTokenId);
-        }
-        if !seen.insert(raw.id.as_str()) {
-            return Err(ConfigError::DuplicateTokenId(raw.id.clone()));
-        }
-        let hash = resolve_token_hash(raw, env, read_file, token_dir)?;
-        entries.push(TokenEntry {
-            id: raw.id.clone(),
-            hash,
-        });
+fn resolve_keys(raw: &[RawKey]) -> Result<AuthorizedKeys, ConfigError> {
+    if raw.is_empty() {
+        return Err(ConfigError::NoKeys);
     }
-    if entries.is_empty() {
-        return Err(ConfigError::NoTokens);
+    let known = known_tools();
+    let mut entries = Vec::with_capacity(raw.len());
+    for key in raw {
+        let mut entry =
+            AuthorizedKeys::parse_key(key.id.clone(), &key.public_key).map_err(map_key_error)?;
+        if let Some(tools) = &key.tools {
+            let mut grant = BTreeSet::new();
+            for tool in tools {
+                if !known.contains(tool) {
+                    return Err(ConfigError::UnknownTool(key.id.clone(), tool.clone()));
+                }
+                grant.insert(tool.clone());
+            }
+            entry.tools = Some(grant);
+        }
+        entries.push(entry);
     }
-    Ok(entries)
+    AuthorizedKeys::new(entries).map_err(map_key_error)
 }
 
-fn resolve_token_hash(
-    raw: &RawToken,
-    env: &dyn Fn(&str) -> Option<String>,
-    read_file: &dyn Fn(&Path) -> Option<String>,
-    token_dir: &Path,
-) -> Result<[u8; HASH_LEN], ConfigError> {
-    if let Some(hex) = &raw.sha256 {
-        return parse_hex_32(hex.trim()).ok_or_else(|| ConfigError::InvalidHash(raw.id.clone()));
+fn map_key_error(error: KeyError) -> ConfigError {
+    match error {
+        KeyError::EmptyId => ConfigError::EmptyKeyId,
+        KeyError::DuplicateId(id) => ConfigError::DuplicateKeyId(id),
+        KeyError::InvalidKey(id, message) => ConfigError::InvalidPublicKey(id, message),
     }
-
-    let env_key = format!("GILFOYLE_TOKEN_{}", raw.id.to_uppercase());
-    if let Some(plaintext) = env(&env_key) {
-        return Ok(sha256(plaintext.as_bytes()));
-    }
-
-    let path = token_dir.join(&raw.id);
-    if let Some(contents) = read_file(&path) {
-        return parse_hex_32(contents.trim())
-            .ok_or_else(|| ConfigError::InvalidHash(raw.id.clone()));
-    }
-
-    Err(ConfigError::MissingSecret(raw.id.clone()))
 }
