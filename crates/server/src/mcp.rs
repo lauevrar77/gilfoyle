@@ -7,8 +7,9 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use gilfoyle_core::{
-    SystemAdmin, SystemdAdmin, UnitActionOutcome, UnitFilter, UnitList, UnitStatus, UnitType,
-    UptimeReport,
+    PackageAdmin, PackageFilter, PackageList, RefreshReport, Severity, SystemAdmin, SystemdAdmin,
+    UnitActionOutcome, UnitFilter, UnitList, UnitStatus, UnitType, UpdateFilter, UpdateList,
+    UpgradePlan, UpgradeReport, UptimeReport,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
@@ -22,6 +23,9 @@ use serde::Deserialize;
 
 /// Default number of units returned by `list_units`.
 const DEFAULT_LIST_LIMIT: usize = 100;
+
+/// Default number of entries returned by the package tools.
+const DEFAULT_PACKAGES_LIMIT: usize = 200;
 
 /// Parameters of `list_units`.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -62,6 +66,62 @@ struct UnitNameParams {
     name: String,
 }
 
+/// Parameters of `list_packages`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ListPackagesParams {
+    /// Only return packages whose name contains this substring (case-insensitive).
+    #[serde(default)]
+    name_contains: Option<String>,
+    /// Maximum number of packages to return. Defaults to 200.
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+impl ListPackagesParams {
+    fn into_filter(self) -> PackageFilter {
+        PackageFilter {
+            name_contains: self.name_contains,
+            limit: Some(self.limit.unwrap_or(DEFAULT_PACKAGES_LIMIT)),
+        }
+    }
+}
+
+/// Parameters of `list_updates`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ListUpdatesParams {
+    /// Only return updates at or above this severity (`low`, `medium`, `high`, `critical`).
+    #[serde(default)]
+    min_severity: Option<String>,
+    /// Maximum number of updates to return. Defaults to 200.
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+impl ListUpdatesParams {
+    fn into_filter(self) -> Result<UpdateFilter, String> {
+        let min_severity = match self.min_severity {
+            Some(value) => Some(Severity::parse(&value).map_err(|error| error.to_string())?),
+            None => None,
+        };
+        Ok(UpdateFilter {
+            min_severity,
+            limit: Some(self.limit.unwrap_or(DEFAULT_PACKAGES_LIMIT)),
+        })
+    }
+}
+
+/// Parameters of `refresh_package_cache`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct RefreshParams {
+    /// Reload the repositories even if the cached metadata looks fresh. Defaults to true.
+    #[serde(default = "default_true")]
+    force: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
 /// Turn a start/stop outcome into a tool result, marking a non-`done` job as an error.
 fn outcome_result(outcome: UnitActionOutcome) -> Result<Json<UnitActionOutcome>, String> {
     if outcome.job_result.is_success() {
@@ -82,6 +142,7 @@ fn outcome_result(outcome: UnitActionOutcome) -> Result<Json<UnitActionOutcome>,
 pub struct GilfoyleServer {
     admin: Arc<dyn SystemAdmin>,
     systemd: Arc<dyn SystemdAdmin>,
+    packages: Arc<dyn PackageAdmin>,
     enabled_tools: Option<BTreeSet<String>>,
     tool_router: ToolRouter<Self>,
 }
@@ -92,11 +153,13 @@ impl GilfoyleServer {
     pub fn new(
         admin: Arc<dyn SystemAdmin>,
         systemd: Arc<dyn SystemdAdmin>,
+        packages: Arc<dyn PackageAdmin>,
         enabled_tools: Option<BTreeSet<String>>,
     ) -> Self {
         Self {
             admin,
             systemd,
+            packages,
             enabled_tools,
             tool_router: Self::tool_router(),
         }
@@ -182,11 +245,86 @@ impl GilfoyleServer {
             .map_err(|error| error.to_string())?;
         outcome_result(outcome)
     }
+
+    /// List installed packages.
+    #[tool(
+        description = "List installed packages and their versions",
+        annotations(read_only_hint = true)
+    )]
+    async fn list_packages(
+        &self,
+        Parameters(params): Parameters<ListPackagesParams>,
+    ) -> Result<Json<PackageList>, String> {
+        self.packages
+            .list_packages(&params.into_filter())
+            .await
+            .map(Json)
+            .map_err(|error| error.to_string())
+    }
+
+    /// List available updates.
+    #[tool(
+        description = "List available package updates",
+        annotations(read_only_hint = true)
+    )]
+    async fn list_updates(
+        &self,
+        Parameters(params): Parameters<ListUpdatesParams>,
+    ) -> Result<Json<UpdateList>, String> {
+        let filter = params.into_filter()?;
+        self.packages
+            .list_updates(&filter)
+            .await
+            .map(Json)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Preview an upgrade without applying it.
+    #[tool(
+        description = "Preview what upgrading would do, without applying it",
+        annotations(read_only_hint = true)
+    )]
+    async fn preview_upgrade(&self) -> Result<Json<UpgradePlan>, String> {
+        self.packages
+            .preview_upgrade()
+            .await
+            .map(Json)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Refresh the package metadata cache.
+    #[tool(
+        description = "Refresh the package metadata cache (only when [packagekit] allow includes refresh)",
+        annotations(idempotent_hint = true)
+    )]
+    async fn refresh_package_cache(
+        &self,
+        Parameters(params): Parameters<RefreshParams>,
+    ) -> Result<Json<RefreshReport>, String> {
+        self.packages
+            .refresh_packages(params.force)
+            .await
+            .map(Json)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Apply available upgrades.
+    #[tool(
+        description = "Apply available package upgrades (only when [packagekit] allow includes upgrade)",
+        annotations(destructive_hint = true, idempotent_hint = true)
+    )]
+    async fn upgrade_packages(&self) -> Result<Json<UpgradeReport>, String> {
+        self.packages
+            .upgrade_packages()
+            .await
+            .map(Json)
+            .map_err(|error| error.to_string())
+    }
 }
 
 #[tool_handler(
     name = "gilfoyle",
-    instructions = "Administer a Linux host: read the uptime, inspect systemd units, and start or stop allowlisted units."
+    instructions = "Administer a Linux host: read the uptime, inspect systemd units, start or stop allowlisted units, and inspect or upgrade packages (never install or remove)."
 )]
 impl ServerHandler for GilfoyleServer {
     async fn list_tools(

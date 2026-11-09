@@ -526,6 +526,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gilfoyle-packagekit"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures-util",
+ "gilfoyle-core",
+ "tokio",
+ "zbus",
+]
+
+[[package]]
 name = "gilfoyle-server"
 version = "0.1.0"
 dependencies = [
@@ -533,6 +544,7 @@ dependencies = [
  "axum",
  "clap",
  "gilfoyle-core",
+ "gilfoyle-packagekit",
  "gilfoyle-system",
  "gilfoyle-systemd",
  "reqwest",

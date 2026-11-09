@@ -1,10 +1,11 @@
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
+use gilfoyle_core::PackageOperation;
 use gilfoyle_server::auth::TokenEntry;
 use gilfoyle_server::config::{
-    ConfigError, DEFAULT_BIND, DEFAULT_LOG_LEVEL, RawConfig, RawSystemd, RawToken, RawTools,
-    parse_bind, resolve_config,
+    ConfigError, DEFAULT_BIND, DEFAULT_LOG_LEVEL, RawConfig, RawPackagekit, RawSystemd, RawToken,
+    RawTools, parse_bind, resolve_config,
 };
 use gilfoyle_server::hash::{sha256, to_hex};
 
@@ -297,6 +298,72 @@ fn empty_manage_units_means_no_managed_units() {
     };
     let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
     assert!(config.allowlist.is_empty());
+}
+
+#[test]
+fn resolves_the_package_allowlist_and_options() {
+    let raw = RawConfig {
+        packagekit: RawPackagekit {
+            allow: vec!["refresh".to_string(), "upgrade".to_string()],
+            allow_transitive_changes: true,
+            poll_timeout_seconds: Some(60),
+            default_limit: Some(50),
+        },
+        tokens: vec![token("admin")],
+        ..RawConfig::default()
+    };
+    let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
+    assert!(config.package_allowlist.contains(PackageOperation::Refresh));
+    assert!(config.package_allowlist.contains(PackageOperation::Upgrade));
+    assert!(config.allow_transitive_changes);
+    assert_eq!(config.package_poll_timeout_seconds, Some(60));
+    assert_eq!(config.package_default_limit, Some(50));
+}
+
+#[test]
+fn rejects_an_unknown_package_operation() {
+    let raw = RawConfig {
+        packagekit: RawPackagekit {
+            allow: vec!["install".to_string()],
+            ..RawPackagekit::default()
+        },
+        tokens: vec![token("admin")],
+        ..RawConfig::default()
+    };
+    assert_eq!(
+        resolve(raw, &env_from(&[]), &no_files()).unwrap_err(),
+        ConfigError::InvalidPackageOperation("install".to_string())
+    );
+}
+
+#[test]
+fn empty_package_allowlist_is_default_deny() {
+    let raw = RawConfig {
+        tokens: vec![token("admin")],
+        ..RawConfig::default()
+    };
+    let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
+    assert!(config.package_allowlist.is_empty());
+    assert!(!config.allow_transitive_changes);
+    assert_eq!(config.package_poll_timeout_seconds, None);
+}
+
+#[test]
+fn parses_a_packagekit_toml_section() {
+    let document = r#"
+        [packagekit]
+        allow = ["upgrade"]
+        allow_transitive_changes = true
+        poll_timeout_seconds = 120
+
+        [[tokens]]
+        id = "admin"
+        sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    "#;
+    let raw: RawConfig = toml::from_str(document).unwrap();
+    let config = resolve(raw, &env_from(&[]), &no_files()).unwrap();
+    assert_eq!(config.package_poll_timeout_seconds, Some(120));
+    assert!(config.allow_transitive_changes);
 }
 
 #[test]

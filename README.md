@@ -10,7 +10,8 @@ and the only host interaction in the whole codebase is reading a handful of fixe
 files.
 
 > Status: early. Tools so far: `get_uptime`, `list_units`, `unit_status`, `start_unit`,
-> `stop_unit`.
+> `stop_unit`, `list_packages`, `list_updates`, `preview_upgrade`, `refresh_package_cache`,
+> `upgrade_packages`.
 
 ## Why it is safe by construction
 
@@ -35,20 +36,23 @@ dependency graph.
         ┌─────────────────── driving adapters ───────────────────┐
 client ─┤  gilfoyle-server: MCP handler · HTTP · auth · config   │
         └───────────────────────────┬────────────────────────────┘
-                                    │  driving port: SystemAdmin
+                                    │  driving ports
         ┌───────────────────────────▼────────────────────────────┐
         │  gilfoyle-core (pure): domain · ports · use cases      │
         └───────────────────────────▲────────────────────────────┘
-                                    │  driven port: UptimeSource
-        ┌───────────────────────────┴────────────────────────────┐
-        │  gilfoyle-system: ProcUptime (reads /proc/uptime)      │
-        └────────────────────────────────────────────────────────┘
+                                    │  driven ports
+   ┌────────────────────────────────┼────────────────────────────────┐
+   │  gilfoyle-system  (uptime)     │  gilfoyle-systemd  (systemd)   │
+   │                                │  gilfoyle-packagekit (packages)│
+   └────────────────────────────────┴────────────────────────────────┘
 ```
 
 | Crate | Role | I/O |
 |---|---|---|
 | `gilfoyle-core` | domain types, ports, use cases | none |
 | `gilfoyle-system` | driven adapters (host probes) | read-only |
+| `gilfoyle-systemd` | driven adapter for systemd over in-process D-Bus | D-Bus |
+| `gilfoyle-packagekit` | driven adapter for PackageKit over in-process D-Bus | D-Bus |
 | `gilfoyle-server` | driving adapters + `gilfoyle` binary | network |
 
 ## Requirements
@@ -85,11 +89,29 @@ allowed_origins = []              # empty disables Origin validation
 log_level = "info"                # tracing filter, JSON logs on stderr
 
 [tools]
-enabled = ["get_uptime", "list_units", "unit_status", "start_unit", "stop_unit"]
+enabled = [
+  "get_uptime",
+  "list_units", "unit_status", "start_unit", "stop_unit",
+  "list_packages", "list_updates", "preview_upgrade",
+  "refresh_package_cache", "upgrade_packages",
+]
 
 [systemd]
 # Units that may be started or stopped. Empty (the default) means none may.
 manage_units = ["nginx.service", "myapp.service"]
+
+[packagekit]
+# Mutating package operations that may be performed. Empty (the default) means
+# none may. There is deliberately no "install" or "remove": gilfoyle never
+# installs or removes a package.
+allow = ["refresh", "upgrade"]
+# An upgrade is refused when its plan would install, remove, obsolete or
+# downgrade a package. Set this to true to permit such transitive changes.
+allow_transitive_changes = false
+# Timeout for a whole package transaction, in seconds (default 600).
+poll_timeout_seconds = 600
+# Maximum number of package entries returned in a report (default 200).
+default_limit = 200
 
 [[tokens]]
 id = "admin"
@@ -162,6 +184,52 @@ and `stop_unit` wait for the systemd job to finish and report its result.
 Mutations are **default-deny**: they act only on units listed in `[systemd] manage_units`,
 and polkit is the authority behind them. Reads may target any unit.
 
+### Package tools
+
+Packages are managed through **PackageKit** over the system D-Bus
+(`org.freedesktop.PackageKit`), in-process and without spawning anything. That
+makes the same frontend work on APT (Debian) and DNF (Rocky). Gilfoyle never
+installs or removes a package: the operation vocabulary is closed in code, and
+`apt upgrade` is expressed as an update of existing packages only.
+
+| Tool | Arguments | Effect |
+|---|---|---|
+| `list_packages` | `name_contains?`, `limit?` | list installed packages and versions (read-only) |
+| `list_updates` | `min_severity?`, `limit?` | list available updates (read-only) |
+| `preview_upgrade` | — | simulate an upgrade and report what it would do (read-only) |
+| `refresh_package_cache` | `force?` (default `true`) | refresh the metadata cache, i.e. `apt update` |
+| `upgrade_packages` | — | apply available upgrades, i.e. `apt upgrade` |
+
+Reads (`list_packages`, `list_updates`, `preview_upgrade`) are open. The two
+mutations are **default-deny**: they act only when `[packagekit] allow` names
+them, and polkit is the authority behind them.
+
+`preview_upgrade` and the gate inside `upgrade_packages` use PackageKit's
+`SIMULATE` flag, which PackageKit authorises without polkit and which never
+changes anything. If the plan would install, remove, obsolete or downgrade a
+package, `upgrade_packages` refuses unless `allow_transitive_changes = true`.
+Untrusted packages (missing signature, required signing key, EULA) are always
+refused: gilfoyle never answers `InstallSignature` or `AcceptEula`.
+
+### Authorising package operations (polkit)
+
+`refresh_package_cache` needs `org.freedesktop.packagekit.system-sources-refresh`
+and `upgrade_packages` needs `org.freedesktop.packagekit.system-update`. PackageKit
+asks polkit for these, but the stock defaults require an interactive
+administrative authentication, which a headless system service cannot satisfy,
+so the operator installs a generated rule:
+
+```sh
+gilfoyle packagekit polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-packagekit.rules > /dev/null
+```
+
+The rule grants the `gilfoyle` user only the actions named in `[packagekit] allow`,
+and explicitly refuses installing, reinstalling, downgrading, removing packages,
+trusting signing keys and upgrading the whole distribution. Gilfoyle warns at
+startup when the installed rule is missing or out of sync. PackageKit only exists
+on hosts that ship it (and its backend); on a minimal host the package tools
+report a clear "PackageKit is unavailable" error.
+
 ### Authorising unit control (polkit)
 
 `start_unit` and `stop_unit` require the `org.freedesktop.systemd1.manage-units`
@@ -189,16 +257,23 @@ is reported, an unreadable one is only logged at debug level.
 **In scope.** An attacker who reaches the HTTP endpoint, or who compromises the
 gilfoyle process, must not gain code execution or host privileges.
 
-- **No code execution.** Tools are compiled functions; nothing accepts a command or
-  path to run. Enforced by `clippy::disallowed_methods` and `forbid(unsafe_code)`.
+- **No code execution.** Tools are compiled functions; nothing accepts a command,
+  script or path to run. systemd and PackageKit are both reached over in-process
+  D-Bus, never by spawning `systemctl` or `apt`. Enforced by
+  `clippy::disallowed_methods` and `forbid(unsafe_code)`.
+- **No install, no remove, by construction.** The package operation vocabulary is a
+  closed enum with no install/remove variant, so no configuration can enable one;
+  upgrades carry the `ONLY_TRUSTED` flag, and a plan that would install or remove a
+  package is refused.
 - **Least privilege.** Run as an unprivileged dedicated user (see the systemd unit).
-  Future mutation tools will delegate to a separate, narrowly-scoped privileged helper
-  behind a port rather than escalating in-process.
+  Mutations are delegated to systemd and PackageKit over the system bus, and polkit
+  is the authority behind them; gilfoyle never escalates in-process.
 - **Auth.** Bearer token per request, SHA-256 + constant-time comparison, no secret in
   logs or error messages. Legacy MCP session ids are bound to the token that created
   them, preventing session hijacking.
-- **Fail-closed.** No configured token, no start; non-loopback bind requires explicit
-  opt-in.
+- **Fail-closed.** No configured token, no start; no allowlisted unit, no start; no
+  allowed package operation, no refresh or upgrade; non-loopback bind requires
+  explicit opt-in.
 
 **Out of scope for now.** TLS/mTLS and rate limiting are expected to be terminated by a
 reverse proxy in front of gilfoyle. Migration to MCP OAuth 2.1 is planned.
@@ -217,8 +292,8 @@ make install-hooks  # git pre-commit hook (fmt + clippy + tests)
 
 The mutation score is held at **100%**: a single surviving mutant fails `make mutants`.
 The composition root (`main.rs`) is excluded; everything else must be caught. The systemd
-adapter is tested against an **in-process mock bus** (a peer-to-peer socket pair), so no
-daemon or real unit is needed.
+and PackageKit adapters are tested against **in-process mock buses** (peer-to-peer socket
+pairs), so no daemon, real unit or package manager is needed.
 
 ## Installing on a host
 
@@ -243,6 +318,10 @@ sudo systemctl enable --now gilfoyle
 # 5. polkit, to authorise start/stop (see above)
 sudo apt-get install -y polkitd
 gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules > /dev/null
+
+# 6. PackageKit, to inspect and upgrade packages (optional; see above)
+sudo apt-get install -y packagekit
+gilfoyle packagekit polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-packagekit.rules > /dev/null
 ```
 
 `packaging/gilfoyle.service` is a hardened unit (dedicated `gilfoyle` user,
@@ -288,6 +367,8 @@ Parameters (ask me if a value is missing):
   TOKEN_ID      = <name for the client token, e.g. nestor>
   MANAGED_UNITS = <systemd units that may be started or stopped, e.g. docker.service;
                    leave empty for read-only>
+  PKG_ALLOW     = <package operations that may be performed, a subset of
+                   ["refresh", "upgrade"]; leave empty for read-only>
 
 Steps:
 1. Download $PKG.tar.gz and its .sha256 into a temporary directory, verify the checksum
@@ -302,15 +383,20 @@ Steps:
    Write /etc/gilfoyle/config.toml (0640 root:gilfoyle) with:
      bind, allow_public, allowed_hosts, allowed_origins = [], log_level = "info",
      [systemd] manage_units = MANAGED_UNITS,
+     [packagekit] allow = PKG_ALLOW,
      [[tokens]] id = "<TOKEN_ID>".
 5. Install gilfoyle.service to /etc/systemd/system/ (0644), run `systemctl daemon-reload`,
    then `systemctl enable --now gilfoyle`, and show `systemctl status gilfoyle`.
 6. If MANAGED_UNITS is not empty: install polkit if missing
    (`apt-get install -y polkitd` on Debian/Ubuntu), then install the rule with
    `gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules`.
+   If PKG_ALLOW is not empty: install PackageKit if missing (`apt-get install -y packagekit`
+   on Debian/Ubuntu, `dnf install -y packagekit` on Rocky), then install the rule with
+   `gilfoyle packagekit polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-packagekit.rules`.
 7. Verify: `curl -s http://<BIND>/healthz` must return {"status":"ok"}; then perform an
    authenticated MCP `initialize` (Authorization: Bearer <secret>) and a `tools/list`, and
-   confirm the five tools: get_uptime, list_units, unit_status, start_unit, stop_unit.
+   confirm the ten tools: get_uptime, list_units, unit_status, start_unit, stop_unit,
+   list_packages, list_updates, preview_upgrade, refresh_package_cache, upgrade_packages.
 8. Report back the MCP URL, the tool list, and the token exactly once so I can store it.
    Never log the token anywhere else, and never run gilfoyle as root.
 ```

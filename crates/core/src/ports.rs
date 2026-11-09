@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 
 use crate::{
-    AppError, SystemError, SystemdError, Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus,
-    Uptime, UptimeReport,
+    AppError, PackageError, PackageFilter, PackageList, RefreshReport, SystemError, SystemdError,
+    Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus, UpdateFilter, UpdateList,
+    UpgradePlan, UpgradeReport, Uptime, UptimeReport,
 };
 
 /// Outbound (driven) port: a source of host uptime.
@@ -55,4 +56,40 @@ pub trait SystemdAdmin: Send + Sync {
     async fn start_unit(&self, name: &str) -> Result<UnitActionOutcome, AppError>;
     /// Stop a managed unit.
     async fn stop_unit(&self, name: &str) -> Result<UnitActionOutcome, AppError>;
+}
+
+/// Outbound (driven) port: read and mutate packages through PackageKit.
+///
+/// Implemented by the PackageKit adapter in `gilfoyle-packagekit`. Reads are
+/// open; the adapter never installs or removes a package.
+#[async_trait]
+pub trait PackageManager: Send + Sync {
+    /// List installed packages.
+    async fn list_installed(&self, filter: &PackageFilter) -> Result<PackageList, PackageError>;
+    /// List available updates.
+    async fn check_updates(&self, filter: &UpdateFilter) -> Result<UpdateList, PackageError>;
+    /// Simulate applying the given updates and report what it would do.
+    async fn plan(&self, package_ids: &[String]) -> Result<UpgradePlan, PackageError>;
+    /// Apply the given updates.
+    async fn apply(&self, package_ids: &[String]) -> Result<UpgradeReport, PackageError>;
+    /// Refresh the package metadata cache.
+    async fn refresh(&self, force: bool) -> Result<RefreshReport, PackageError>;
+}
+
+/// Inbound (driving) port: the package operations gilfoyle exposes.
+///
+/// Reads are open; the mutations are checked against the allowlist, and an
+/// upgrade is refused when its plan crosses the install/remove boundary.
+#[async_trait]
+pub trait PackageAdmin: Send + Sync {
+    /// List installed packages.
+    async fn list_packages(&self, filter: &PackageFilter) -> Result<PackageList, AppError>;
+    /// List available updates.
+    async fn list_updates(&self, filter: &UpdateFilter) -> Result<UpdateList, AppError>;
+    /// Simulate an upgrade and report what it would do.
+    async fn preview_upgrade(&self) -> Result<UpgradePlan, AppError>;
+    /// Refresh the package metadata cache.
+    async fn refresh_packages(&self, force: bool) -> Result<RefreshReport, AppError>;
+    /// Apply available upgrades.
+    async fn upgrade_packages(&self) -> Result<UpgradeReport, AppError>;
 }

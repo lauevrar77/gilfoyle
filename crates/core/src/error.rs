@@ -1,5 +1,7 @@
 use thiserror::Error;
 
+use crate::packagekit::PackageError;
+
 /// Errors raised while validating domain values.
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum DomainError {
@@ -15,6 +17,15 @@ pub enum DomainError {
     /// A unit type filter value was not a known unit type.
     #[error("unknown unit type: {0}")]
     UnknownUnitType(String),
+    /// A package id was not of the form `name;version;arch;origin;data`.
+    #[error("invalid package id: {0}")]
+    InvalidPackageId(String),
+    /// An update severity filter value was not `low`, `medium`, `high` or `critical`.
+    #[error("unknown severity: {0}")]
+    UnknownSeverity(String),
+    /// A package operation was not `refresh` or `upgrade`.
+    #[error("unknown package operation: {0}")]
+    UnknownPackageOperation(String),
 }
 
 /// Errors raised by an outbound (driven) adapter while probing the host.
@@ -89,4 +100,10 @@ pub enum AppError {
     /// A systemd operation failed.
     #[error(transparent)]
     Systemd(#[from] SystemdError),
+    /// A mutating package operation is not in the allowlist.
+    #[error("package operation `{0}` is not allowed")]
+    PackageOperationNotAllowed(String),
+    /// A PackageKit operation failed.
+    #[error(transparent)]
+    Package(#[from] PackageError),
 }

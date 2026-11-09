@@ -7,17 +7,24 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 use gilfoyle_core::{
-    Allowlist, ServiceCatalog, ServiceControl, SystemAdmin, SystemService, SystemdAdmin,
-    SystemdService,
+    Allowlist, PackageAdmin, PackageManager, PackageService, ServiceCatalog, ServiceControl,
+    SystemAdmin, SystemService, SystemdAdmin, SystemdService,
+};
+use gilfoyle_packagekit::{
+    DEFAULT_CALL_TIMEOUT, DEFAULT_LIMIT, DEFAULT_POLL_TIMEOUT, LazyPackagekit,
 };
 use gilfoyle_server::auth::{AuthState, TokenStore};
 use gilfoyle_server::config::{DEFAULT_CONFIG_PATH, RawConfig, resolve_allowlist, resolve_config};
 use gilfoyle_server::hash::hash_token_hex;
 use gilfoyle_server::http::{AppState, build_router};
-use gilfoyle_server::polkit::{POLKIT_RULE_PATH, render_polkit_rule};
+use gilfoyle_server::polkit::{
+    PACKAGEKIT_POLKIT_RULE_PATH, POLKIT_RULE_PATH, render_packagekit_polkit_rule,
+    render_polkit_rule,
+};
 use gilfoyle_system::ProcUptime;
 use gilfoyle_systemd::LazySystemd;
 
@@ -45,11 +52,22 @@ enum Command {
         #[command(subcommand)]
         command: SystemdCommand,
     },
+    /// PackageKit administration helpers.
+    Packagekit {
+        #[command(subcommand)]
+        command: PackagekitCommand,
+    },
 }
 
 #[derive(Subcommand)]
 enum SystemdCommand {
     /// Print the polkit rule derived from [systemd] manage_units.
+    PolkitRule,
+}
+
+#[derive(Subcommand)]
+enum PackagekitCommand {
+    /// Print the polkit rule derived from [packagekit] allow.
     PolkitRule,
 }
 
@@ -61,6 +79,9 @@ async fn main() -> ExitCode {
         Some(Command::Systemd {
             command: SystemdCommand::PolkitRule,
         }) => report(polkit_rule_command(&cli.config)),
+        Some(Command::Packagekit {
+            command: PackagekitCommand::PolkitRule,
+        }) => report(packagekit_polkit_rule_command(&cli.config)),
         None => report(run(&cli.config).await),
     }
 }
@@ -104,6 +125,14 @@ fn polkit_rule_command(config_path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn packagekit_polkit_rule_command(config_path: &Path) -> Result<(), String> {
+    let raw = load_raw(config_path)?;
+    let allowlist = gilfoyle_server::config::resolve_package_allowlist(&raw.packagekit.allow)
+        .map_err(|error| error.to_string())?;
+    print!("{}", render_packagekit_polkit_rule(&allowlist));
+    Ok(())
+}
+
 async fn run(config_path: &Path) -> Result<(), String> {
     let raw = load_raw(config_path)?;
     let config = resolve_config(raw, &|key| std::env::var(key).ok(), &|path| {
@@ -113,6 +142,7 @@ async fn run(config_path: &Path) -> Result<(), String> {
 
     init_tracing(&config.log_level);
     warn_if_polkit_out_of_sync(&config.allowlist);
+    warn_if_packagekit_polkit_out_of_sync(&config.package_allowlist);
 
     let admin: Arc<dyn SystemAdmin> = Arc::new(SystemService::new(ProcUptime::new()));
     let lazy = Arc::new(LazySystemd::system());
@@ -124,9 +154,27 @@ async fn run(config_path: &Path) -> Result<(), String> {
         config.allowlist.clone(),
     ));
 
+    let poll_timeout = Duration::from_secs(
+        config
+            .package_poll_timeout_seconds
+            .unwrap_or(DEFAULT_POLL_TIMEOUT.as_secs()),
+    );
+    let limit = config.package_default_limit.unwrap_or(DEFAULT_LIMIT);
+    let manager: Arc<dyn PackageManager> = Arc::new(LazyPackagekit::system_with(
+        DEFAULT_CALL_TIMEOUT,
+        poll_timeout,
+        limit,
+    ));
+    let packages: Arc<dyn PackageAdmin> = Arc::new(PackageService::new(
+        manager,
+        config.package_allowlist.clone(),
+        config.allow_transitive_changes,
+    ));
+
     let state = AppState {
         admin,
         systemd,
+        packages,
         auth: AuthState::new(Arc::new(TokenStore::new(config.tokens.clone()))),
         allowed_hosts: config.allowed_hosts.clone(),
         allowed_origins: config.allowed_origins.clone(),
@@ -153,6 +201,26 @@ fn warn_if_polkit_out_of_sync(allowlist: &Allowlist) {
             path = POLKIT_RULE_PATH,
             %error,
             "could not read the polkit rule to verify it"
+        ),
+    }
+}
+
+fn warn_if_packagekit_polkit_out_of_sync(allowlist: &gilfoyle_core::PackageAllowlist) {
+    let expected = render_packagekit_polkit_rule(allowlist);
+    match std::fs::read_to_string(PACKAGEKIT_POLKIT_RULE_PATH) {
+        Ok(installed) if installed == expected => {}
+        Ok(_) => tracing::warn!(
+            path = PACKAGEKIT_POLKIT_RULE_PATH,
+            "installed PackageKit polkit rule differs from [packagekit] allow; re-run `gilfoyle packagekit polkit-rule`"
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => tracing::warn!(
+            path = PACKAGEKIT_POLKIT_RULE_PATH,
+            "PackageKit polkit rule not installed; refresh and upgrade will be refused by polkit"
+        ),
+        Err(error) => tracing::debug!(
+            path = PACKAGEKIT_POLKIT_RULE_PATH,
+            %error,
+            "could not read the PackageKit polkit rule to verify it"
         ),
     }
 }

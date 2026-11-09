@@ -4,8 +4,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use gilfoyle_core::{
-    AppError, JobResult, SystemAdmin, SystemError, SystemService, SystemdAdmin, SystemdError, Unit,
-    UnitActionOutcome, UnitFilter, UnitName, UnitStatus, UnitTimestamps, Uptime, UptimeSource,
+    AppError, JobResult, Package, PackageAdmin, PackageFilter, PackageList, RefreshReport,
+    SystemAdmin, SystemError, SystemService, SystemdAdmin, SystemdError, Unit, UnitActionOutcome,
+    UnitFilter, UnitName, UnitStatus, UnitTimestamps, UpdateFilter, UpdateList, UpgradePlan,
+    UpgradeReport, Uptime, UptimeSource,
 };
 use gilfoyle_server::auth::{AuthState, TokenEntry, TokenStore};
 use gilfoyle_server::hash::sha256;
@@ -44,10 +46,52 @@ fn state_full(
     AppState {
         admin,
         systemd: Arc::new(FakeSystemd::default()),
+        packages: Arc::new(FakePackage),
         auth: AuthState::new(Arc::new(TokenStore::new(tokens))),
         allowed_hosts,
         allowed_origins,
         enabled_tools,
+    }
+}
+
+/// A scriptable stand-in for the package driving port.
+#[derive(Clone)]
+struct FakePackage;
+
+#[async_trait]
+impl PackageAdmin for FakePackage {
+    async fn list_packages(&self, filter: &PackageFilter) -> Result<PackageList, AppError> {
+        Ok(filter.apply(vec![Package {
+            name: "nginx".to_string(),
+            version: "1.24.0".to_string(),
+            architecture: "amd64".to_string(),
+            origin: "debian".to_string(),
+        }]))
+    }
+
+    async fn list_updates(&self, filter: &UpdateFilter) -> Result<UpdateList, AppError> {
+        Ok(filter.apply(Vec::new()))
+    }
+
+    async fn preview_upgrade(&self) -> Result<UpgradePlan, AppError> {
+        Ok(UpgradePlan::empty())
+    }
+
+    async fn refresh_packages(&self, _force: bool) -> Result<RefreshReport, AppError> {
+        Ok(RefreshReport {
+            success: true,
+            exit: "success".to_string(),
+            error_code: None,
+            error_details: None,
+            timed_out: false,
+            runtime_ms: 12,
+            repos: Vec::new(),
+            repos_truncated: false,
+        })
+    }
+
+    async fn upgrade_packages(&self) -> Result<UpgradeReport, AppError> {
+        Ok(UpgradeReport::nothing_to_do())
     }
 }
 
@@ -137,6 +181,7 @@ fn state_with_systemd(systemd: FakeSystemd) -> AppState {
     AppState {
         admin: Arc::new(SystemService::new(FixedSource(3661.0))) as Arc<dyn SystemAdmin>,
         systemd: Arc::new(systemd),
+        packages: Arc::new(FakePackage),
         auth: AuthState::new(Arc::new(TokenStore::new(vec![entry("admin", "s3cr3t")]))),
         allowed_hosts: Vec::new(),
         allowed_origins: Vec::new(),
@@ -311,10 +356,15 @@ async fn serves_get_uptime_over_a_full_handshake() {
         names,
         vec![
             "get_uptime".to_string(),
+            "list_packages".to_string(),
             "list_units".to_string(),
+            "list_updates".to_string(),
+            "preview_upgrade".to_string(),
+            "refresh_package_cache".to_string(),
             "start_unit".to_string(),
             "stop_unit".to_string(),
             "unit_status".to_string(),
+            "upgrade_packages".to_string(),
         ]
     );
 
@@ -554,6 +604,72 @@ async fn a_failed_job_is_a_tool_error() {
             .contains("did not succeed"),
         "{body}"
     );
+}
+
+#[tokio::test]
+async fn lists_packages_through_the_tool() {
+    let addr = spawn(state(vec![entry("admin", "s3cr3t")], None)).await;
+    let session = initialize_session(addr, "s3cr3t").await;
+    send_initialized(addr, "s3cr3t", &session).await;
+
+    let body = call_tool(addr, &session, &tools_call_with("list_packages", json!({}))).await;
+    let packages = body["result"]["structuredContent"]["packages"]
+        .as_array()
+        .unwrap();
+    assert_eq!(packages.len(), 1);
+    assert_eq!(packages[0]["name"], "nginx");
+    assert_eq!(packages[0]["version"], "1.24.0");
+}
+
+#[tokio::test]
+async fn lists_updates_and_rejects_a_bad_severity() {
+    let addr = spawn(state(vec![entry("admin", "s3cr3t")], None)).await;
+    let session = initialize_session(addr, "s3cr3t").await;
+    send_initialized(addr, "s3cr3t", &session).await;
+
+    let body = call_tool(addr, &session, &tools_call_with("list_updates", json!({}))).await;
+    assert_eq!(body["result"]["structuredContent"]["total"], 0);
+
+    let request = tools_call_with("list_updates", json!({ "min_severity": "nonsense" }));
+    let body = call_tool(addr, &session, &request).await;
+    assert_eq!(body["result"]["isError"], true);
+    assert!(
+        body["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("unknown severity"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn previews_an_upgrade_through_the_tool() {
+    let addr = spawn(state(vec![entry("admin", "s3cr3t")], None)).await;
+    let session = initialize_session(addr, "s3cr3t").await;
+    send_initialized(addr, "s3cr3t", &session).await;
+
+    let body = call_tool(addr, &session, &tools_call("preview_upgrade")).await;
+    assert_eq!(body["result"]["structuredContent"]["total"], 0);
+    assert_eq!(body["result"]["structuredContent"]["would_install"], 0);
+}
+
+#[tokio::test]
+async fn refreshes_and_upgrades_through_the_tools() {
+    let addr = spawn(state(vec![entry("admin", "s3cr3t")], None)).await;
+    let session = initialize_session(addr, "s3cr3t").await;
+    send_initialized(addr, "s3cr3t", &session).await;
+
+    let body = call_tool(
+        addr,
+        &session,
+        &tools_call_with("refresh_package_cache", json!({ "force": false })),
+    )
+    .await;
+    assert_eq!(body["result"]["structuredContent"]["success"], true);
+    assert_eq!(body["result"]["structuredContent"]["runtime_ms"], 12);
+
+    let body = call_tool(addr, &session, &tools_call("upgrade_packages")).await;
+    assert_eq!(body["result"]["structuredContent"]["success"], true);
 }
 
 #[tokio::test]

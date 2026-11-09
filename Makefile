@@ -42,6 +42,7 @@ fuzz:
 	$(CARGO) fuzz run bearer_header -- -runs=$(FUZZ_RUNS)
 	$(CARGO) fuzz run config_toml -- -runs=$(FUZZ_RUNS)
 	$(CARGO) fuzz run unit_name -- -runs=$(FUZZ_RUNS)
+	$(CARGO) fuzz run package_id -- -runs=$(FUZZ_RUNS)
 
 check: fmt-check lint test mutants
 

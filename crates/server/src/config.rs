@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::path::Path;
 
-use gilfoyle_core::{Allowlist, UnitName};
+use gilfoyle_core::{Allowlist, PackageAllowlist, PackageOperation, UnitName};
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -53,6 +53,9 @@ pub enum ConfigError {
     /// A `[systemd] manage_units` entry was not a valid unit name.
     #[error("invalid unit in [systemd] manage_units: {0}")]
     InvalidManagedUnit(String),
+    /// A `[packagekit] allow` entry was not `refresh` or `upgrade`.
+    #[error("invalid operation in [packagekit] allow: {0}")]
+    InvalidPackageOperation(String),
 }
 
 /// Raw TOML shape, all fields optional so a partial or absent file is valid.
@@ -83,6 +86,9 @@ pub struct RawConfig {
     /// systemd settings.
     #[serde(default)]
     pub systemd: RawSystemd,
+    /// package settings.
+    #[serde(default)]
+    pub packagekit: RawPackagekit,
     /// Configured tokens.
     #[serde(default)]
     pub tokens: Vec<RawToken>,
@@ -95,6 +101,24 @@ pub struct RawSystemd {
     /// Units that may be started or stopped. Empty means none may.
     #[serde(default)]
     pub manage_units: Vec<String>,
+}
+
+/// Raw `[packagekit]` section.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawPackagekit {
+    /// Mutating operations that are permitted. Empty means none are.
+    #[serde(default)]
+    pub allow: Vec<String>,
+    /// Whether an upgrade may install or remove packages transitively.
+    #[serde(default)]
+    pub allow_transitive_changes: bool,
+    /// Timeout for a whole package transaction, in seconds.
+    #[serde(default)]
+    pub poll_timeout_seconds: Option<u64>,
+    /// Maximum number of package entries returned in a report.
+    #[serde(default)]
+    pub default_limit: Option<usize>,
 }
 
 /// Raw `[tools]` section.
@@ -134,6 +158,14 @@ pub struct Config {
     pub enabled_tools: Option<BTreeSet<String>>,
     /// Units that may be started or stopped.
     pub allowlist: Allowlist,
+    /// Package operations that may be performed.
+    pub package_allowlist: PackageAllowlist,
+    /// Whether an upgrade may install or remove packages transitively.
+    pub allow_transitive_changes: bool,
+    /// Timeout for a whole package transaction, in seconds.
+    pub package_poll_timeout_seconds: Option<u64>,
+    /// Maximum number of package entries returned in a report.
+    pub package_default_limit: Option<usize>,
     /// Resolved token entries.
     pub tokens: Vec<TokenEntry>,
 }
@@ -171,6 +203,7 @@ pub fn resolve_config(
         .unwrap_or_else(|| DEFAULT_TOKEN_DIR.to_string());
     let tokens = resolve_tokens(&raw.tokens, env, read_file, Path::new(&token_dir))?;
     let allowlist = resolve_allowlist(&raw.systemd.manage_units)?;
+    let package_allowlist = resolve_package_allowlist(&raw.packagekit.allow)?;
 
     Ok(Config {
         bind,
@@ -180,6 +213,10 @@ pub fn resolve_config(
         log_level,
         enabled_tools: raw.tools.enabled.map(|ids| ids.into_iter().collect()),
         allowlist,
+        package_allowlist,
+        allow_transitive_changes: raw.packagekit.allow_transitive_changes,
+        package_poll_timeout_seconds: raw.packagekit.poll_timeout_seconds,
+        package_default_limit: raw.packagekit.default_limit,
         tokens,
     })
 }
@@ -193,6 +230,18 @@ pub fn resolve_allowlist(units: &[String]) -> Result<Allowlist, ConfigError> {
         names.insert(name.as_str().to_string());
     }
     Ok(Allowlist::new(names))
+}
+
+/// Normalise the package-operation allowlist. Unknown operations fail the load
+/// (fail-closed), and there is no `install` variant to enable.
+pub fn resolve_package_allowlist(operations: &[String]) -> Result<PackageAllowlist, ConfigError> {
+    let mut resolved = BTreeSet::new();
+    for operation in operations {
+        let parsed = PackageOperation::parse(operation)
+            .map_err(|_| ConfigError::InvalidPackageOperation(operation.clone()))?;
+        resolved.insert(parsed);
+    }
+    Ok(PackageAllowlist::new(resolved))
 }
 
 fn resolve_tokens(

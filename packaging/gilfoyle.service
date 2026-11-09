@@ -43,6 +43,9 @@ ReadOnlyPaths=/proc/uptime
 # systemd is reached over the system bus (AF_UNIX, already allowed above).
 # Install the generated polkit rule to authorise start/stop:
 #   gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules > /dev/null
+#
+# PackageKit is reached the same way. Install its rule to authorise refresh/upgrade:
+#   gilfoyle packagekit polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-packagekit.rules > /dev/null
 
 [Install]
 WantedBy=multi-user.target

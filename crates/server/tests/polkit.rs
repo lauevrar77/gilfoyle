@@ -1,5 +1,13 @@
-use gilfoyle_core::Allowlist;
-use gilfoyle_server::polkit::render_polkit_rule;
+use gilfoyle_core::{Allowlist, PackageAllowlist, PackageOperation};
+use gilfoyle_server::polkit::{render_packagekit_polkit_rule, render_polkit_rule};
+
+fn allowed_actions(rule: &str) -> String {
+    rule.split("var allowed = [")
+        .nth(1)
+        .and_then(|rest| rest.split(']').next())
+        .unwrap_or_default()
+        .to_string()
+}
 
 #[test]
 fn renders_the_exact_rule_for_managed_units() {
@@ -21,6 +29,41 @@ polkit.addRule(function(action, subject) {
 });
 "#;
     assert_eq!(render_polkit_rule(&allowlist), expected);
+}
+
+#[test]
+fn packagekit_rule_grants_only_the_allowed_operations() {
+    let rule = render_packagekit_polkit_rule(&PackageAllowlist::new([PackageOperation::Refresh]));
+    let allowed = allowed_actions(&rule);
+    assert!(allowed.contains("org.freedesktop.packagekit.system-sources-refresh"));
+    assert!(!allowed.contains("org.freedesktop.packagekit.system-update"));
+    assert!(!allowed.contains("package-install"));
+}
+
+#[test]
+fn packagekit_rule_denies_install_and_remove_explicitly() {
+    let rule = render_packagekit_polkit_rule(&PackageAllowlist::new([
+        PackageOperation::Refresh,
+        PackageOperation::Upgrade,
+    ]));
+    assert!(rule.contains("polkit.Result.NO"));
+    for action in [
+        "org.freedesktop.packagekit.package-install",
+        "org.freedesktop.packagekit.package-install-untrusted",
+        "org.freedesktop.packagekit.package-remove",
+        "org.freedesktop.packagekit.upgrade-system",
+    ] {
+        assert!(rule.contains(action), "rule should mention {action}");
+    }
+    let allowed = allowed_actions(&rule);
+    assert!(allowed.contains("org.freedesktop.packagekit.system-update"));
+    assert!(!allowed.contains("package-install"));
+}
+
+#[test]
+fn packagekit_rule_allows_nothing_when_the_allowlist_is_empty() {
+    let rule = render_packagekit_polkit_rule(&PackageAllowlist::default());
+    assert!(allowed_actions(&rule).trim().is_empty());
 }
 
 #[test]

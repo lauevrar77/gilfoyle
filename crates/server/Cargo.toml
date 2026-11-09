@@ -17,6 +17,7 @@ path = "src/main.rs"
 gilfoyle-core = { workspace = true }
 gilfoyle-system = { workspace = true }
 gilfoyle-systemd = { workspace = true }
+gilfoyle-packagekit = { workspace = true }
 
 rmcp = { workspace = true }
 tokio = { workspace = true }

@@ -54,6 +54,47 @@ The set of managed units. It is empty by default, so every start and stop is ref
 the operator opts in.
 _Avoid_: whitelist, permitted list
 
+## Packages
+
+**Package**:
+A unit of software that a package manager installs, updates and removes.
+_Avoid_: program, library
+
+**Package id**:
+The identifier of a package across repositories: its name, version, architecture and
+origin, carried as one string.
+_Avoid_: package name
+
+**Installed package**:
+A package present on the host, with the version currently installed.
+_Avoid_: package (when an installed one specifically is meant)
+
+**Update**:
+A newer version of an installed package, available from a repository.
+
+**Upgrade**:
+Applying the available updates to installed packages. It never installs a package that
+was not already present, and never removes one.
+_Avoid_: update (as a verb)
+
+**Refresh**:
+Fetching repository metadata so that updates can be discovered. It changes no package.
+
+**Managed operation**:
+A mutating package operation listed in `[packagekit] allow`. Only `refresh` and
+`upgrade` exist; the allowlist is empty by default.
+_Avoid_: allowed operation
+
+**Trusted package**:
+A package signed by a repository key the host trusts. Gilfoyle acts only on trusted
+packages.
+_Avoid_: signed package
+
+**Untrusted package**:
+A package that is unsigned or cannot be verified. Gilfoyle always refuses it, and never
+trusts a new signing key.
+_Avoid_: unsigned package
+
 ## Measurements
 
 **Uptime**:

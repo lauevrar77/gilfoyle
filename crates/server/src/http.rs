@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use axum::{Json, Router, middleware, routing::get};
-use gilfoyle_core::{SystemAdmin, SystemdAdmin};
+use gilfoyle_core::{PackageAdmin, SystemAdmin, SystemdAdmin};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
@@ -23,6 +23,8 @@ pub struct AppState {
     pub admin: Arc<dyn SystemAdmin>,
     /// The systemd driving port.
     pub systemd: Arc<dyn SystemdAdmin>,
+    /// The package driving port.
+    pub packages: Arc<dyn PackageAdmin>,
     /// Authentication state.
     pub auth: AuthState,
     /// Host header allowlist for the MCP transport.
@@ -41,6 +43,7 @@ pub fn build_router(state: AppState) -> Router {
     let server = GilfoyleServer::new(
         state.admin.clone(),
         state.systemd.clone(),
+        state.packages.clone(),
         state.enabled_tools.clone(),
     );
 
