@@ -17,7 +17,8 @@ pub enum DomainError {
     /// A unit type filter value was not a known unit type.
     #[error("unknown unit type: {0}")]
     UnknownUnitType(String),
-    /// A package id was not of the form `name;version;arch;origin;data`.
+    /// A package id was not of the form `name;version;arch;data` (APT) or
+    /// `name;version;arch;origin;data` (DNF).
     #[error("invalid package id: {0}")]
     InvalidPackageId(String),
     /// An update severity filter value was not `low`, `medium`, `high` or `critical`.
