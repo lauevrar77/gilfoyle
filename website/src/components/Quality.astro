@@ -1,0 +1,67 @@
+---
+import Section from "./Section.astro";
+import { type Locale } from "../site";
+import { t } from "../i18n";
+
+interface Props {
+  lang: Locale;
+}
+const { lang } = Astro.props;
+const d = t(lang).quality;
+---
+
+<Section
+  id="quality"
+  index={d.index}
+  kicker={d.kicker}
+  title={d.title}
+  lead={d.lead}
+>
+  <div data-reveal class="panel overflow-hidden rounded-xl">
+    <div class="flex flex-wrap items-center gap-4 border-b border-line px-5 py-3">
+      <span class="text-xs text-faint">{d.gateTitle}</span>
+      <span
+        class="ml-auto text-[10px] uppercase tracking-[0.25em] text-faint"
+        >{d.gateScoreNote}</span
+      >
+    </div>
+    <div class="flex flex-wrap items-center gap-3 p-5">
+      {
+        d.gate.map((step, i) => (
+          <span class="flex items-center gap-3">
+            {i > 0 && (
+              <span class="text-faint" aria-hidden="true">
+                →
+              </span>
+            )}
+            <span class="rounded-md border border-line bg-void/60 px-3 py-2 text-[12.5px] text-fg">
+              {step}
+            </span>
+          </span>
+        ))
+      }
+      <span class="text-faint" aria-hidden="true">→</span>
+      <span
+        class="rounded-md border border-blood/50 bg-blood/10 px-3 py-2 text-[12.5px] font-semibold text-blood-bright"
+        >{d.gateScore}</span
+      >
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+    {
+      d.cards.map((card) => (
+        <div
+          data-reveal
+          class="panel group relative overflow-hidden rounded-xl p-6 transition-colors duration-300 hover:border-blood/40"
+        >
+          <h3 class="text-base font-semibold text-fg">{card.title}</h3>
+          <p class="mt-2.5 text-[13px] leading-relaxed text-muted">
+            {card.body}
+          </p>
+          <div class="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-blood/50 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+        </div>
+      ))
+    }
+  </div>
+</Section>

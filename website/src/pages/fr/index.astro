@@ -1,0 +1,11 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import Landing from "../../components/Landing.astro";
+import { t } from "../../i18n";
+
+const dict = t("fr");
+---
+
+<BaseLayout lang="fr" title={dict.meta.title} description={dict.meta.description}>
+  <Landing lang="fr" />
+</BaseLayout>

@@ -1,0 +1,33 @@
+{
+  "name": "gilfoyle-website",
+  "type": "module",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.23.4"
+  },
+  "scripts": {
+    "dev": "node ./scripts/run-astro.mjs dev",
+    "og": "node ./scripts/build-og.mjs",
+    "build": "node ./scripts/build-og.mjs && node ./scripts/run-astro.mjs build",
+    "preview": "node ./scripts/run-astro.mjs preview",
+    "astro": "node ./scripts/run-astro.mjs"
+  },
+  "dependencies": {
+    "@astrojs/sitemap": "^3.7.4",
+    "@emnapi/core": "1.11.3",
+    "@emnapi/runtime": "1.11.3",
+    "@fontsource-variable/jetbrains-mono": "^5.3.0",
+    "@napi-rs/wasm-runtime": "^1.2.7",
+    "@tailwindcss/vite": "^4.3.5",
+    "astro": "^7.4.7",
+    "sharp": "^0.35.5",
+    "tailwindcss": "^4.3.5"
+  },
+  "optionalDependencies": {
+    "@astrojs/compiler-binding-wasm32-wasi": "^0.5.3"
+  },
+  "overrides": {
+    "rolldown": "1.3.1"
+  }
+}

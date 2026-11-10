@@ -1,0 +1,30 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { t } from "../i18n";
+
+const dict = t("en");
+---
+
+<BaseLayout
+  lang="en"
+  title="404 — refused"
+  description={dict.docs.notFound}
+>
+  <div
+    class="mx-auto flex min-h-[72vh] max-w-3xl flex-col items-center justify-center px-6 text-center"
+  >
+    <div class="text-[11px] uppercase tracking-[0.3em] text-blood">[ 404 ]</div>
+    <h1 class="mt-6 text-5xl font-semibold tracking-tight sm:text-7xl">
+      Refused.
+    </h1>
+    <p class="mt-6 max-w-md text-[15px] leading-relaxed text-muted">
+      {dict.docs.notFound}
+    </p>
+    <a
+      href="/"
+      class="mt-9 inline-flex items-center gap-2 rounded-md border border-line-2 px-5 py-3 text-sm text-fg transition hover:border-blood hover:text-blood-bright"
+    >
+      <span aria-hidden="true">←</span>{dict.docs.back}
+    </a>
+  </div>
+</BaseLayout>

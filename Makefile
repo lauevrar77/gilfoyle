@@ -1,7 +1,7 @@
 CARGO ?= cargo
 FUZZ_RUNS ?= 20000
 
-.PHONY: help build run fmt fmt-check lint test check mutants fuzz package-release install-hooks
+.PHONY: help build run fmt fmt-check lint test check mutants fuzz package-release install-hooks website-install website-dev website-build website-preview
 
 help:
 	@echo "Gilfoyle — available targets:"
@@ -16,6 +16,10 @@ help:
 	@echo "  check         fmt-check + lint + test + mutants"
 	@echo "  package-release Build + tarball the release artifacts into dist/"
 	@echo "  install-hooks Install the git pre-commit hook"
+	@echo "  website-install Install the website dependencies (npm ci in website/)"
+	@echo "  website-dev   Run the website dev server"
+	@echo "  website-build Build the static website into website/dist/"
+	@echo "  website-preview Preview the built website"
 
 build:
 	$(CARGO) build --workspace
@@ -53,3 +57,15 @@ check: fmt-check lint test mutants
 
 install-hooks:
 	./scripts/install-hooks.sh
+
+website-install:
+	cd website && npm ci
+
+website-dev:
+	cd website && npm run dev
+
+website-build:
+	cd website && npm run build
+
+website-preview:
+	cd website && npm run preview

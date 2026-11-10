@@ -1,0 +1,117 @@
+---
+import Section from "./Section.astro";
+import { type Locale } from "../site";
+import { t } from "../i18n";
+
+interface Props {
+  lang: Locale;
+}
+const { lang } = Astro.props;
+const d = t(lang).hardening;
+
+// The real hardening block, lifted from packaging/gilfoyle.service.
+const unit: { k: string; v: string }[] = [
+  { k: "User", v: "gilfoyle" },
+  { k: "Group", v: "gilfoyle" },
+  { k: "NoNewPrivileges", v: "yes" },
+  { k: "ProtectSystem", v: "strict" },
+  { k: "ProtectHome", v: "yes" },
+  { k: "PrivateTmp", v: "yes" },
+  { k: "PrivateDevices", v: "yes" },
+  { k: "ProtectKernelTunables", v: "yes" },
+  { k: "ProtectKernelModules", v: "yes" },
+  { k: "ProtectControlGroups", v: "yes" },
+  { k: "ProtectClock", v: "yes" },
+  { k: "ProtectHostname", v: "yes" },
+  { k: "RestrictAddressFamilies", v: "AF_INET AF_INET6 AF_UNIX" },
+  { k: "RestrictNamespaces", v: "yes" },
+  { k: "RestrictRealtime", v: "yes" },
+  { k: "RestrictSUIDSGID", v: "yes" },
+  { k: "LockPersonality", v: "yes" },
+  { k: "MemoryDenyWriteExecute", v: "yes" },
+  { k: "CapabilityBoundingSet", v: "" },
+  { k: "AmbientCapabilities", v: "" },
+  { k: "SystemCallArchitectures", v: "native" },
+  { k: "SystemCallFilter", v: "@system-service" },
+  { k: "SystemCallErrorNumber", v: "EPERM" },
+  { k: "ReadOnlyPaths", v: "/proc/uptime" },
+];
+---
+
+<Section
+  id="hardening"
+  index={d.index}
+  kicker={d.kicker}
+  title={d.title}
+  lead={d.lead}
+>
+  <div class="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.08fr)]">
+    <div data-reveal class="panel overflow-hidden rounded-xl">
+      <div class="flex items-center gap-3 border-b border-line px-5 py-3">
+        <span class="truncate text-xs text-faint">{d.unitTitle}</span>
+        <span
+          class="ml-auto shrink-0 text-[10px] uppercase tracking-[0.25em] text-blood"
+          >{d.unitCaption}</span
+        >
+      </div>
+      <div class="space-y-1 p-5 text-[12.5px] leading-relaxed">
+        {
+          unit.map(({ k, v }) => (
+            <div class="flex gap-2">
+              <span class="text-muted">{k}</span>
+              <span class="text-faint">=</span>
+              {v ? (
+                <span class="text-acid">{v}</span>
+              ) : (
+                <span class="text-blood" title="empty">
+                  ∅
+                </span>
+              )}
+            </div>
+          ))
+        }
+      </div>
+    </div>
+
+    <div data-reveal class="grid gap-5 sm:grid-cols-2">
+      {
+        d.groups.map((group) => (
+          <div class="panel rounded-xl p-5">
+            <h3 class="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.25em] text-fg">
+              <span class="h-1.5 w-1.5 rounded-full bg-blood" />
+              {group.title}
+            </h3>
+            <ul class="space-y-1.5">
+              {group.items.map((item) => (
+                <li class="flex items-start gap-2 text-[12.5px] leading-relaxed text-muted">
+                  <span class="mt-0.5 select-none text-acid">✓</span>
+                  <span class="break-all">{item}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+
+  <div
+    data-reveal
+    class="panel relative mt-6 overflow-hidden rounded-xl border-blood/30 p-6"
+  >
+    <h3 class="flex items-center gap-2 text-sm font-semibold text-fg">
+      <span class="h-1.5 w-1.5 rounded-full bg-blood"></span>
+      {d.docker.title}
+    </h3>
+    <p class="mt-2.5 max-w-3xl text-[13px] leading-relaxed text-muted">
+      {d.docker.body}
+    </p>
+  </div>
+
+  <p
+    data-reveal
+    class="mt-6 border-l-2 border-blood/50 pl-4 text-[13px] leading-relaxed text-muted"
+  >
+    {d.footnote}
+  </p>
+</Section>

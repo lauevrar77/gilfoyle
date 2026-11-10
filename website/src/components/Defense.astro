@@ -1,0 +1,88 @@
+---
+import Section from "./Section.astro";
+import { type Locale } from "../site";
+import { t } from "../i18n";
+
+interface Props {
+  lang: Locale;
+}
+const { lang } = Astro.props;
+const d = t(lang).defense;
+---
+
+<Section
+  id="defense"
+  index={d.index}
+  kicker={d.kicker}
+  title={d.title}
+  lead={d.lead}
+>
+  <div class="grid gap-8 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+    <!-- defense in depth: a funnel of layers -->
+    <div data-reveal class="space-y-2">
+      {
+        d.layers.map((layer, i) => (
+          <div
+            class="panel rounded-lg border-l-2 px-4 py-3"
+            style={`margin-inline:${i * 2.5}%; border-left-color: rgba(225,29,72,${(0.28 + i * 0.11).toFixed(2)})`}
+          >
+            <div class="flex items-baseline gap-3">
+              <span class="text-[10px] tracking-[0.25em] text-faint">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <span class="text-[13px] font-semibold text-fg">{layer.name}</span>
+            </div>
+            <p class="mt-1 text-[11.5px] leading-snug text-muted">
+              {layer.note}
+            </p>
+          </div>
+        ))
+      }
+      <p class="pt-1 text-center text-[10px] uppercase tracking-[0.3em] text-faint">
+        ↓ {d.coreLabel}
+      </p>
+    </div>
+
+    <!-- the attack matrix -->
+    <div data-reveal>
+      <div class="panel overflow-hidden rounded-xl">
+        <div
+          class="hidden grid-cols-[1.15fr_1fr_auto] gap-4 border-b border-line px-5 py-3 text-[10px] uppercase tracking-[0.25em] text-faint sm:grid"
+        >
+          <span>{d.attackCol}</span>
+          <span>{d.byCol}</span>
+          <span class="text-right">{d.resultCol}</span>
+        </div>
+        <ul>
+          {
+            d.attacks.map((a) => (
+              <li class="grid gap-1 border-b border-line/60 px-5 py-3 last:border-0 sm:grid-cols-[1.15fr_1fr_auto] sm:items-center sm:gap-4">
+                <code class="text-[12.5px] text-fg">{a.attack}</code>
+                <span class="text-[12px] text-faint">{a.by}</span>
+                <span
+                  class:list={[
+                    "justify-self-start rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-wider sm:justify-self-end",
+                    a.kind === "structural"
+                      ? "border-acid/40 bg-acid/10 text-acid"
+                      : "border-blood/40 bg-blood/10 text-blood-bright",
+                  ]}
+                >
+                  {a.result}
+                </span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <div class="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 text-[11px] text-faint">
+        <span class="inline-flex items-center gap-2">
+          <span class="h-2 w-2 rounded-full bg-blood"></span>{d.legendRuntime}
+        </span>
+        <span class="inline-flex items-center gap-2">
+          <span class="h-2 w-2 rounded-full bg-acid"></span>{d.legendStructural}
+        </span>
+      </div>
+    </div>
+  </div>
+</Section>

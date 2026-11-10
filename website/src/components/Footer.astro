@@ -1,0 +1,88 @@
+---
+import Cross from "./Cross.astro";
+import { SITE, type Locale, homePath } from "../site";
+import { t } from "../i18n";
+
+interface Props {
+  lang: Locale;
+  altHref: string;
+}
+const { lang, altHref } = Astro.props;
+const dict = t(lang);
+---
+
+<footer class="relative z-10 border-t border-line bg-ink">
+  <div class="mx-auto grid max-w-6xl gap-12 px-6 py-16 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="lg:col-span-2">
+      <a
+        href={homePath(lang)}
+        class="flex items-center gap-2.5 text-sm font-semibold text-fg"
+      >
+        <Cross class="text-blood" size={11} />
+        {SITE.name.toLowerCase()}
+      </a>
+      <p class="mt-5 max-w-sm text-sm leading-relaxed text-muted">
+        {dict.footer.tagline}
+      </p>
+      <p class="mt-3 max-w-sm text-xs leading-relaxed text-faint">
+        {dict.footer.built}
+      </p>
+    </div>
+
+    <div>
+      <h3
+        class="mb-4 text-[11px] uppercase tracking-[0.3em] text-faint"
+      >
+        {dict.footer.project}
+      </h3>
+      <ul class="space-y-2.5 text-sm">
+        {
+          dict.footer.projectLinks.map((l) => (
+            <li>
+              <a
+                href={l.href}
+                class="link-line text-muted hover:text-fg"
+                rel="noopener"
+              >
+                {l.label}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    <div>
+      <h3 class="mb-4 text-[11px] uppercase tracking-[0.3em] text-faint">
+        {dict.footer.resources}
+      </h3>
+      <ul class="space-y-2.5 text-sm">
+        {
+          dict.footer.resourceLinks.map((l) => (
+            <li>
+              <a href={l.href} class="link-line text-muted hover:text-fg">
+                {l.label}
+              </a>
+            </li>
+          ))
+        }
+        <li>
+          <a href={altHref} class="link-line text-muted hover:text-fg">
+            {dict.nav.langLabel}
+          </a>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="border-t border-line">
+    <div
+      class="mx-auto flex max-w-6xl flex-col gap-2 px-6 py-6 text-xs text-faint sm:flex-row sm:items-center sm:justify-between"
+    >
+      <span>{dict.footer.rights}</span>
+      <span class="text-faint"
+        >{SITE.url.replace("https://", "")}</span
+      >
+    </div>
+  </div>
+</footer>
