@@ -1,0 +1,61 @@
+---
+import Cross from "./Cross.astro";
+import { SITE, type Locale, homePath, docsIndexPath } from "../site";
+import { t } from "../i18n";
+
+interface Props {
+  lang: Locale;
+  altHref: string;
+}
+const { lang, altHref } = Astro.props;
+const dict = t(lang);
+const home = homePath(lang);
+---
+
+<header
+  class="fixed inset-x-0 top-0 z-50 border-b border-line/70 bg-void/80 backdrop-blur-md"
+>
+  <nav class="mx-auto flex h-16 max-w-6xl items-center gap-5 px-6">
+    <a
+      href={home}
+      class="group flex items-center gap-2.5 text-sm font-semibold tracking-tight text-fg"
+    >
+      <Cross
+        class="text-blood transition-transform duration-300 group-hover:rotate-180"
+        size={11}
+      />
+      <span class="glitch">{SITE.name.toLowerCase()}</span>
+      <span class="caret caret-acid" style="height:0.85em"></span>
+    </a>
+
+    <div class="hidden items-center gap-5 text-[13px] text-muted xl:flex">
+      {
+        dict.nav.links.map((link) => (
+          <a href={`${home}${link.href}`} class="link-line hover:text-fg">
+            {link.label}
+          </a>
+        ))
+      }
+    </div>
+
+    <div class="ml-auto flex items-center gap-2">
+      <a
+        href={altHref}
+        class="hidden rounded-md border border-line px-2.5 py-1.5 text-xs text-muted transition hover:border-line-2 hover:text-fg sm:inline-block"
+        aria-label={dict.nav.langLabel}
+        >{dict.nav.langLabel}</a
+      >
+      <a
+        href={docsIndexPath(lang)}
+        class="hidden rounded-md px-2.5 py-1.5 text-xs text-muted transition hover:text-fg sm:inline-block"
+        >{dict.nav.docs}</a
+      >
+      <a
+        href={SITE.releases}
+        class="inline-flex items-center gap-1.5 rounded-md bg-blood px-3 py-1.5 text-xs font-medium text-white shadow-glow transition hover:bg-blood-bright"
+      >
+        <span class="text-white/70">↓</span>{dict.nav.get}
+      </a>
+    </div>
+  </nav>
+</header>

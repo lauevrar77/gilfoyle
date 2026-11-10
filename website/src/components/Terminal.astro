@@ -1,0 +1,54 @@
+---
+interface Line {
+  kind: string;
+  text: string;
+}
+interface Props {
+  title?: string;
+  prompt?: string;
+  lines: Line[];
+  cursor?: boolean;
+}
+const { title = "gilfoyle", prompt = "$", lines, cursor = true } = Astro.props;
+
+const tone: Record<string, string> = {
+  cmd: "text-fg",
+  out: "text-muted",
+  refuse: "text-blood-bright",
+  ok: "text-acid",
+};
+---
+
+<div class="panel relative overflow-hidden rounded-xl">
+  <div class="scanline"></div>
+  <div class="relative flex items-center border-b border-line px-4 py-3">
+    <span class="term-dots"></span>
+    <span class="ml-7 truncate text-xs text-faint">{title}</span>
+    <span class="ml-auto text-[10px] uppercase tracking-[0.25em] text-faint"
+      >ssh</span
+    >
+  </div>
+  <div
+    class="relative space-y-2 p-4 text-[12.5px] leading-relaxed sm:p-5 sm:text-[13.5px]"
+  >
+    {
+      lines.map((l) => (
+        <div class="flex gap-2">
+          {l.kind === "cmd" && <span class="select-none text-acid">{prompt}</span>}
+          {l.kind === "out" && <span class="select-none text-faint">·</span>}
+          {l.kind === "refuse" && <span class="select-none text-blood">✗</span>}
+          {l.kind === "ok" && <span class="select-none text-acid">✓</span>}
+          <span class={tone[l.kind] ?? "text-fg"}>{l.text}</span>
+        </div>
+      ))
+    }
+    {
+      cursor && (
+        <div class="flex gap-2">
+          <span class="select-none text-acid">{prompt}</span>
+          <span class="caret"></span>
+        </div>
+      )
+    }
+  </div>
+</div>

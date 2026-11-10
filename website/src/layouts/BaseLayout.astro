@@ -1,0 +1,78 @@
+---
+import "@fontsource-variable/jetbrains-mono";
+import "../styles/global.css";
+
+import Nav from "../components/Nav.astro";
+import Footer from "../components/Footer.astro";
+import {
+  SITE,
+  type Locale,
+  otherLocale,
+  homePath,
+  docPath,
+} from "../site";
+import { t } from "../i18n";
+
+interface Props {
+  lang: Locale;
+  title: string;
+  description: string;
+  /** Set on docs pages: the doc slug, used to build the alternate-language URL. */
+  docsSlug?: string;
+}
+const { lang, title, description, docsSlug } = Astro.props;
+const dict = t(lang);
+
+const alt = otherLocale(lang);
+const altHref = docsSlug ? docPath(alt, docsSlug) : homePath(alt);
+const canonical = new URL(Astro.url.pathname, SITE.url).href;
+const altUrl = new URL(altHref, SITE.url).href;
+const ogImage = new URL(`/og-${lang}.png`, SITE.url).href;
+const fullTitle = title.includes(SITE.name) ? title : `${title} — ${SITE.name}`;
+---
+
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <link rel="alternate" hreflang={lang} href={canonical} />
+    <link rel="alternate" hreflang={alt} href={altUrl} />
+    <link
+      rel="alternate"
+      hreflang="x-default"
+      href={new URL(homePath("en"), SITE.url).href}
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={SITE.name} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:locale" content={lang === "fr" ? "fr_FR" : "en_US"} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content={ogImage} />
+    <meta name="theme-color" content="#070709" />
+    <script>
+      import "../scripts/main.js";
+    </script>
+  </head>
+  <body class="min-h-screen">
+    <div class="grid-field"></div>
+    <a
+      href="#main"
+      class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-blood focus:px-4 focus:py-2 focus:text-sm focus:text-white"
+      >{dict.nav.skip}</a
+    >
+    <Nav lang={lang} altHref={altHref} />
+    <main id="main" class="relative z-10">
+      <slot />
+    </main>
+    <Footer lang={lang} altHref={altHref} />
+  </body>
+</html>

@@ -1,0 +1,57 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { getCollection } from "astro:content";
+import { docPath } from "../../site";
+import { t } from "../../i18n";
+
+const lang = "en" as const;
+const dict = t(lang);
+const docs = (await getCollection("docsEn")).sort(
+  (a, b) => a.data.order - b.data.order,
+);
+---
+
+<BaseLayout lang={lang} title={dict.docs.title} description={dict.docs.intro}>
+  <div class="mx-auto max-w-4xl px-6 pb-24 pt-28">
+    <div
+      class="mb-8 flex items-center gap-3 text-[11px] uppercase tracking-[0.3em] text-faint"
+    >
+      <span class="text-blood">[docs]</span>
+      <span class="h-px flex-1 bg-line"></span>
+    </div>
+    <h1 class="text-balance text-4xl font-semibold tracking-tight text-fg">
+      {dict.docs.title}
+    </h1>
+    <p class="mt-4 max-w-2xl text-[15px] leading-relaxed text-muted">
+      {dict.docs.intro}
+    </p>
+
+    <ul class="mt-10 space-y-3">
+      {
+        docs.map((doc, i) => (
+          <li>
+            <a
+              href={docPath(lang, doc.id)}
+              class="panel group flex items-center gap-5 rounded-xl p-5 transition hover:border-blood/40"
+            >
+              <span class="text-[11px] tracking-[0.3em] text-faint">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <span class="flex-1">
+                <span class="block text-base font-semibold text-fg group-hover:text-blood-bright">
+                  {doc.data.title}
+                </span>
+                <span class="mt-1 block text-[13px] text-muted">
+                  {doc.data.description}
+                </span>
+              </span>
+              <span class="text-faint transition group-hover:translate-x-0.5 group-hover:text-blood-bright">
+                →
+              </span>
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</BaseLayout>

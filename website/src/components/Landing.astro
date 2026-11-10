@@ -1,0 +1,433 @@
+---
+import Section from "./Section.astro";
+import Terminal from "./Terminal.astro";
+import Cross from "./Cross.astro";
+import Defense from "./Defense.astro";
+import Hardening from "./Hardening.astro";
+import Quality from "./Quality.astro";
+import { SITE, type Locale, docsIndexPath } from "../site";
+import { t } from "../i18n";
+
+interface Props {
+  lang: Locale;
+}
+const { lang } = Astro.props;
+const dict = t(lang);
+const d = dict;
+
+const badge: Record<string, string> = {
+  read: "border-acid/40 bg-acid/10 text-acid",
+  mutate: "border-blood/40 bg-blood/10 text-blood-bright",
+};
+---
+
+<!-- ─────────────────────────── HERO ─────────────────────────── -->
+<section class="relative overflow-hidden pb-16 pt-32 sm:pt-40">
+  <div
+    class="blood-haze left-1/2 top-[-18rem] h-[40rem] w-[40rem] -translate-x-1/2"
+  >
+  </div>
+  <div
+    class="relative mx-auto grid w-full max-w-6xl gap-14 px-6 lg:grid-cols-[1.05fr_0.95fr] lg:items-center"
+  >
+    <div>
+      <div
+        class="mb-6 inline-flex items-center gap-2 rounded-full border border-line bg-panel/70 px-3 py-1 text-[11px] text-muted"
+      >
+        <span class="h-1.5 w-1.5 rounded-full bg-acid"></span>
+        {d.hero.status}
+      </div>
+
+      <div class="mb-4 text-[11px] uppercase tracking-[0.3em] text-faint">
+        {d.hero.name} — {d.hero.role}
+      </div>
+
+      <div class="mb-5 text-sm text-muted">
+        <span class="text-acid">{d.hero.prompt}</span>{" "}
+        <span data-type={d.hero.typed}></span>
+      </div>
+
+      <h1
+        class="text-balance text-4xl font-semibold leading-[1.04] tracking-tight sm:text-6xl"
+      >
+        {d.hero.headlineA}{" "}
+        <span class="text-blood glitch">{d.hero.headlineB}</span>
+      </h1>
+
+      <p class="mt-6 max-w-xl text-[15px] leading-relaxed text-muted">
+        {d.hero.lead}
+      </p>
+
+      <div class="mt-8 flex flex-wrap items-center gap-3">
+        <a
+          href={docsIndexPath(lang)}
+          class="inline-flex items-center gap-2 rounded-md bg-blood px-5 py-3 text-sm font-medium text-white shadow-glow transition hover:bg-blood-bright"
+        >
+          {d.hero.ctaPrimary}
+          <span aria-hidden="true">→</span>
+        </a>
+        <a
+          href={SITE.releases}
+          class="inline-flex items-center gap-2 rounded-md border border-line-2 px-5 py-3 text-sm text-fg transition hover:border-blood hover:text-blood-bright"
+        >
+          <span class="text-faint" aria-hidden="true">↓</span>
+          {d.hero.ctaSecondary}
+        </a>
+      </div>
+
+      <p class="mt-6 text-xs tracking-wide text-faint">{d.hero.footnote}</p>
+    </div>
+
+    <div data-reveal class="lg:pl-4">
+      <Terminal lines={d.hero.terminal} title="nestor@web1" />
+    </div>
+  </div>
+</section>
+
+<!-- ─────────────────────────── THE HARD NO'S ─────────────────────────── -->
+<section class="relative z-10 border-y border-line bg-ink/70">
+  <div
+    class="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-8 gap-y-3 px-6 py-5 text-[11px] uppercase tracking-[0.25em] text-muted"
+  >
+    <span class="text-faint">{d.claims.lead}</span>
+    {
+      d.claims.items.map((item) => (
+        <span class="inline-flex items-center gap-2">
+          <span class="text-blood" aria-hidden="true">
+            ✗
+          </span>
+          {item}
+        </span>
+      ))
+    }
+  </div>
+</section>
+
+<!-- ─────────────────────────── THESIS ─────────────────────────── -->
+<Section
+  id="why"
+  index={d.thesis.index}
+  kicker={d.thesis.kicker}
+  title={d.thesis.title}
+>
+  <div class="grid gap-8 lg:grid-cols-[1.3fr_0.7fr]">
+    <div data-reveal class="space-y-5 text-[15px] leading-relaxed text-muted">
+      {d.thesis.body.map((p) => <p>{p}</p>)}
+    </div>
+    <div data-reveal class="panel relative overflow-hidden rounded-xl p-6">
+      <Cross class="absolute right-5 top-5 text-blood/30" size={18} />
+      <p class="text-sm leading-relaxed text-fg/90">“{d.thesis.aside}”</p>
+      <p class="mt-4 text-[11px] uppercase tracking-[0.25em] text-faint">
+        {d.quote.attribution}
+      </p>
+    </div>
+  </div>
+</Section>
+
+<!-- ─────────────────────────── REFUSALS ─────────────────────────── -->
+<Section
+  id="refuse"
+  index={d.refuse.index}
+  kicker={d.refuse.kicker}
+  title={d.refuse.title}
+  lead={d.refuse.lead}
+>
+  <div class="grid gap-6 md:grid-cols-2">
+    <div data-reveal class="panel rounded-xl p-6">
+      <h3
+        class="mb-5 flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-acid"
+      >
+        <span class="h-1.5 w-1.5 rounded-full bg-acid"></span>
+        {d.refuse.doTitle}
+      </h3>
+      <ul class="space-y-4">
+        {
+          d.refuse.do.map((item) => (
+            <li class="flex items-start gap-3">
+              <span class="mt-1 select-none text-acid">+</span>
+              <span>
+                <span class="text-sm text-fg">{item.label}</span>
+                <span class="block text-[13px] leading-relaxed text-muted">
+                  {item.note}
+                </span>
+              </span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+
+    <div data-reveal class="panel rounded-xl p-6">
+      <h3
+        class="mb-5 flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-blood-bright"
+      >
+        <span class="h-1.5 w-1.5 rounded-full bg-blood"></span>
+        {d.refuse.refuseTitle}
+      </h3>
+      <ul class="space-y-4">
+        {
+          d.refuse.refuse.map((item) => (
+            <li class="flex items-start gap-3">
+              <span class="mt-1 select-none text-blood">−</span>
+              <span>
+                <span class="text-sm text-fg line-through decoration-blood/60">
+                  {item.label}
+                </span>
+                <span class="block text-[13px] leading-relaxed text-muted">
+                  {item.note}
+                </span>
+              </span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+</Section>
+
+<!-- ─────────────────────────── GUARANTEES ─────────────────────────── -->
+<Section
+  id="guarantees"
+  index={d.guarantees.index}
+  kicker={d.guarantees.kicker}
+  title={d.guarantees.title}
+  lead={d.guarantees.lead}
+>
+  <div class="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+    {
+      d.guarantees.items.map((item, i) => (
+        <div
+          data-reveal
+          class="panel group relative overflow-hidden rounded-xl p-6 transition-colors duration-300 hover:border-blood/40"
+        >
+          <div class="mb-4 flex items-center justify-between">
+            <span class="text-[11px] tracking-[0.3em] text-faint">
+              {String(i + 1).padStart(2, "0")}
+            </span>
+            <span class="rounded-full border border-line px-2.5 py-0.5 text-[10px] uppercase tracking-wider text-faint">
+              {item.tag}
+            </span>
+          </div>
+          <h3 class="text-base font-semibold text-fg">{item.title}</h3>
+          <p class="mt-2.5 text-[13px] leading-relaxed text-muted">
+            {item.body}
+          </p>
+          <div class="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-blood/50 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+        </div>
+      ))
+    }
+  </div>
+</Section>
+
+<!-- ─────────────────────────── DEFENSE IN DEPTH ─────────────────────────── -->
+<Defense lang={lang} />
+
+<!-- ─────────────────────────── HARDENING ─────────────────────────── -->
+<Hardening lang={lang} />
+
+<!-- ─────────────────────────── QUALITY ─────────────────────────── -->
+<Quality lang={lang} />
+
+<!-- ─────────────────────────── TOOLS ─────────────────────────── -->
+<Section
+  id="tools"
+  index={d.tools.index}
+  kicker={d.tools.kicker}
+  title={d.tools.title}
+  lead={d.tools.lead}
+>
+  <div class="space-y-6">
+    {
+      d.tools.groups.map((group) => (
+        <div data-reveal class="panel overflow-hidden rounded-xl">
+          <div class="flex items-center gap-3 border-b border-line px-5 py-3">
+            <span class="text-sm font-semibold text-fg">{group.name}</span>
+            <span class="text-[11px] text-faint">{group.note}</span>
+          </div>
+          <ul>
+            {group.items.map((tool) => (
+              <li class="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line/60 px-5 py-3.5 last:border-0 sm:grid sm:grid-cols-[minmax(11rem,1.1fr)_minmax(9rem,1fr)_1.4fr_auto] sm:items-center">
+                <code class="text-[13px] text-blood-bright">{tool.name}</code>
+                <span class="text-[12px] text-faint">{tool.args}</span>
+                <span class="text-[13px] text-muted">{tool.effect}</span>
+                <span
+                  class={`justify-self-start rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-wider sm:justify-self-end ${badge[tool.kind]}`}
+                >
+                  {tool.kind === "read" ? d.tools.read : d.tools.mutate}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))
+    }
+  </div>
+  <p
+    data-reveal
+    class="mt-6 border-l-2 border-blood/50 pl-4 text-[13px] leading-relaxed text-muted"
+  >
+    {d.tools.clientNote}
+  </p>
+</Section>
+
+<!-- ─────────────────────────── TOPOLOGY ─────────────────────────── -->
+<Section
+  id="topology"
+  index={d.topology.index}
+  kicker={d.topology.kicker}
+  title={d.topology.title}
+  lead={d.topology.lead}
+>
+  <div data-reveal class="panel rounded-xl p-6 sm:p-8">
+    <div class="flex flex-col items-stretch gap-5 lg:flex-row lg:items-center">
+      <div class="flex-1 rounded-lg border border-line-2 bg-void/60 p-5">
+        <div class="flex items-center gap-2 text-sm font-semibold text-fg">
+          <span class="h-1.5 w-1.5 rounded-full bg-muted"></span>
+          {d.topology.agent.name}
+        </div>
+        <p class="mt-2 text-[12.5px] leading-relaxed text-muted">
+          {d.topology.agent.body}
+        </p>
+      </div>
+
+      <div
+        class="flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.2em] text-faint lg:flex-col"
+      >
+        <span class="h-px w-10 bg-line-2 lg:h-10 lg:w-px"></span>
+        <span class="whitespace-nowrap text-center">{d.topology.legend}</span>
+        <span class="hidden text-blood lg:inline" aria-hidden="true">→</span>
+        <span class="text-blood lg:hidden" aria-hidden="true">↓</span>
+      </div>
+
+      <div
+        class="flex-1 rounded-lg border border-blood/40 bg-blood/[0.06] p-5"
+      >
+        <div class="flex items-center gap-2 text-sm font-semibold text-fg">
+          <span class="h-1.5 w-1.5 rounded-full bg-blood"></span>
+          {d.topology.client.name}
+        </div>
+        <p class="mt-2 text-[12.5px] leading-relaxed text-muted">
+          {d.topology.client.body}
+        </p>
+      </div>
+
+      <div
+        class="flex items-center justify-center gap-2 text-[10px] uppercase tracking-[0.2em] text-faint lg:flex-col"
+      >
+        <span class="h-px w-10 bg-line-2 lg:h-10 lg:w-px"></span>
+        <span class="whitespace-nowrap text-center">{d.topology.legendSsh}</span>
+        <span class="hidden text-blood lg:inline" aria-hidden="true">→</span>
+        <span class="text-blood lg:hidden" aria-hidden="true">↓</span>
+      </div>
+
+      <div class="flex flex-1 flex-col gap-3">
+        {
+          [d.topology.nodeA, d.topology.nodeB].map((host) => (
+            <div class="rounded-lg border border-acid/30 bg-acid/[0.05] p-4">
+              <div class="flex items-center gap-2 text-[13px] font-semibold text-fg">
+                <span class="h-1.5 w-1.5 rounded-full bg-acid" />
+                {d.topology.node.name}
+                <span class="text-faint">· {host}</span>
+              </div>
+              <p class="mt-1.5 text-[12px] leading-relaxed text-muted">
+                {d.topology.node.body}
+              </p>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</Section>
+
+<!-- ─────────────────────────── ARCHITECTURE ─────────────────────────── -->
+<Section
+  id="architecture"
+  index={d.architecture.index}
+  kicker={d.architecture.kicker}
+  title={d.architecture.title}
+  lead={d.architecture.lead}
+>
+  <div data-reveal class="panel overflow-hidden rounded-xl">
+    <div
+      class="hidden grid-cols-[1.2fr_2fr_1fr] gap-4 border-b border-line px-5 py-3 text-[10px] uppercase tracking-[0.25em] text-faint sm:grid"
+    >
+      <span>{d.architecture.crate}</span>
+      <span>{d.architecture.role}</span>
+      <span class="text-right">{d.architecture.io}</span>
+    </div>
+    <ul>
+      {
+        d.architecture.crates.map((crate) => (
+          <li class="grid gap-1 border-b border-line/60 px-5 py-3.5 last:border-0 sm:grid-cols-[1.2fr_2fr_1fr] sm:items-center sm:gap-4">
+            <code class="text-[13px] text-blood-bright">{crate.name}</code>
+            <span class="text-[13px] text-muted">{crate.role}</span>
+            <span class="text-[11px] uppercase tracking-wider text-faint sm:text-right">
+              {crate.io}
+            </span>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+  <p
+    data-reveal
+    class="mt-6 border-l-2 border-acid/50 pl-4 text-[13px] leading-relaxed text-muted"
+  >
+    {d.architecture.note}
+  </p>
+</Section>
+
+<!-- ─────────────────────────── QUOTE ─────────────────────────── -->
+<section class="relative mx-auto max-w-4xl px-6 py-20 text-center sm:py-28">
+  <div data-reveal class="flex flex-col items-center">
+    <Cross class="text-blood/50" size={16} />
+    <blockquote
+      class="mt-8 text-balance text-2xl font-medium leading-snug text-fg sm:text-3xl"
+    >
+      “{d.quote.text}”
+    </blockquote>
+    <p class="mt-6 text-[11px] uppercase tracking-[0.3em] text-faint">
+      {d.quote.attribution}
+    </p>
+  </div>
+</section>
+
+<!-- ─────────────────────────── CTA ─────────────────────────── -->
+<section class="mx-auto w-full max-w-6xl px-6 pb-28">
+  <div
+    data-reveal
+    class="panel relative overflow-hidden rounded-2xl px-8 py-14 text-center sm:px-16"
+  >
+    <div
+      class="blood-haze left-1/2 top-1/2 h-[26rem] w-[26rem] -translate-x-1/2 -translate-y-1/2 opacity-30"
+    >
+    </div>
+    <div class="relative">
+      <h2
+        class="text-balance text-3xl font-semibold leading-tight tracking-tight sm:text-4xl"
+      >
+        {d.cta.title}
+      </h2>
+      <p class="mx-auto mt-5 max-w-xl text-[15px] leading-relaxed text-muted">
+        {d.cta.body}
+      </p>
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <a
+          href={SITE.releases}
+          class="inline-flex items-center gap-2 rounded-md bg-blood px-5 py-3 text-sm font-medium text-white shadow-glow transition hover:bg-blood-bright"
+        >
+          <span class="text-white/70" aria-hidden="true">↓</span>
+          {d.cta.primary}
+        </a>
+        <a
+          href={`${docsIndexPath(lang)}installing/`}
+          class="inline-flex items-center gap-2 rounded-md border border-line-2 px-5 py-3 text-sm text-fg transition hover:border-blood hover:text-blood-bright"
+        >
+          {d.cta.secondary}
+          <span aria-hidden="true">→</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,150 @@
+---
+import BaseLayout from "./BaseLayout.astro";
+import { type Locale, docsIndexPath, docPath } from "../site";
+import { t } from "../i18n";
+
+interface DocLink {
+  slug: string;
+  title: string;
+  order: number;
+}
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+interface Props {
+  lang: Locale;
+  slug?: string;
+  title: string;
+  description: string;
+  docs: DocLink[];
+  headings?: Heading[];
+  prev?: DocLink;
+  next?: DocLink;
+}
+const {
+  lang,
+  slug,
+  title,
+  description,
+  docs,
+  headings = [],
+  prev,
+  next,
+} = Astro.props;
+const dict = t(lang);
+const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
+---
+
+<BaseLayout lang={lang} title={title} description={description} docsSlug={slug}>
+  <div class="mx-auto max-w-6xl px-6 pb-24 pt-28">
+    <div class="mb-10 flex items-center gap-3 text-[11px] uppercase tracking-[0.3em] text-faint">
+      <a href={docsIndexPath(lang)} class="text-blood hover:text-blood-bright"
+        >{dict.docs.title}</a
+      >
+      <span class="h-px w-6 bg-line"></span>
+      <span>{title}</span>
+    </div>
+
+    <div
+      class="grid gap-12 lg:grid-cols-[14rem_minmax(0,1fr)] xl:grid-cols-[14rem_minmax(0,1fr)_12rem]"
+    >
+      <aside class="lg:sticky lg:top-24 lg:h-fit">
+        <nav class="space-y-1">
+          {
+            docs.map((doc) => (
+              <a
+                href={docPath(lang, doc.slug)}
+                class:list={[
+                  "block rounded-md border-l-2 px-3 py-2 text-[13px] transition",
+                  doc.slug === slug
+                    ? "border-blood bg-blood/[0.07] text-fg"
+                    : "border-transparent text-muted hover:border-line-2 hover:text-fg",
+                ]}
+              >
+                {doc.title}
+              </a>
+            ))
+          }
+        </nav>
+      </aside>
+
+      <div class="min-w-0">
+        <header class="mb-8">
+          <h1
+            class="text-balance text-3xl font-semibold tracking-tight text-fg sm:text-4xl"
+          >
+            {title}
+          </h1>
+          <p class="mt-3 max-w-2xl text-[15px] leading-relaxed text-muted">
+            {description}
+          </p>
+        </header>
+        <article class="doc-body">
+          <slot />
+        </article>
+
+        <div class="mt-14 grid gap-4 border-t border-line pt-8 sm:grid-cols-2">
+          {
+            prev ? (
+              <a
+                href={docPath(lang, prev.slug)}
+                class="group panel rounded-lg p-4 transition hover:border-blood/40"
+              >
+                <span class="text-[10px] uppercase tracking-[0.25em] text-faint">
+                  ← {dict.docs.prev}
+                </span>
+                <span class="mt-1 block text-sm text-fg group-hover:text-blood-bright">
+                  {prev.title}
+                </span>
+              </a>
+            ) : (
+              <span />
+            )
+          }
+          {
+            next && (
+              <a
+                href={docPath(lang, next.slug)}
+                class="group panel rounded-lg p-4 text-right transition hover:border-blood/40 sm:col-start-2"
+              >
+                <span class="text-[10px] uppercase tracking-[0.25em] text-faint">
+                  {dict.docs.next} →
+                </span>
+                <span class="mt-1 block text-sm text-fg group-hover:text-blood-bright">
+                  {next.title}
+                </span>
+              </a>
+            )
+          }
+        </div>
+      </div>
+
+      {
+        toc.length > 0 && (
+          <aside class="hidden xl:block">
+            <div class="sticky top-24">
+              <p class="mb-3 text-[10px] uppercase tracking-[0.25em] text-faint">
+                {dict.docs.onThisPage}
+              </p>
+              <nav class="space-y-2 border-l border-line">
+                {toc.map((h) => (
+                  <a
+                    href={`#${h.slug}`}
+                    class:list={[
+                      "block border-l-2 border-transparent pl-3 text-[12px] leading-snug text-muted transition hover:border-blood hover:text-fg",
+                      h.depth === 3 && "pl-6 text-faint",
+                    ]}
+                  >
+                    {h.text}
+                  </a>
+                ))}
+              </nav>
+            </div>
+          </aside>
+        )
+      }
+    </div>
+  </div>
+</BaseLayout>
