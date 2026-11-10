@@ -429,10 +429,12 @@ Build a release artifact with:
 make package-release            # writes dist/gilfoyle-<version>-x86_64-unknown-linux-gnu.tar.gz
 ```
 
-The tarball holds the `gilfoyle` binary, `gilfoyle.service` and the example polkit rules
-(units and packages), plus `README.md` and `INSTALL.md`. Tag the commit (`git tag vX.Y.Z`),
-create the release, and attach the `.tar.gz` and its `.sha256`. The client uses the same
-binary (`gilfoyle client`).
+The tarball holds the `gilfoyle` binary, `gilfoyle.service`, the example polkit rules (units
+and packages), `README.md`, `INSTALL.md`, and the **compiled website** under `website/`. The
+release script builds the site (`npm ci && npm run build` in `website/`) and fails if it
+cannot — a release always ships the site. Tag the commit (`git tag vX.Y.Z`), create the
+release, and attach the `.tar.gz` and its `.sha256`. The client uses the same binary
+(`gilfoyle client`).
 
 ## License
 

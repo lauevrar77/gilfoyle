@@ -62,12 +62,37 @@ The systemd and PackageKit adapters are covered by in-process mock buses, the Do
 by an in-process mock HTTP server on a UNIX socket, and the SSH transport by an in-process
 `russh` client/server pair.
 
+## Website — always keep it in sync
+
+`website/` is a self-contained, bilingual Astro + Tailwind project that mirrors the docs
+(English at `/`, French at `/fr/`). It is not run by `make check`, but it is part of the
+deliverable: **always update it in the same change as the code or docs it describes.**
+
+- **Docs pages** — `website/src/content/docs/en/*.md` and `website/src/content/docs/fr/*.md`
+  (both locales; a change to a tool, the configuration, the threat model, hardening or the
+  install steps must land in both files).
+- **Copy and UI strings** — `website/src/i18n/en.ts` and `website/src/i18n/fr.ts` (they share
+  one shape; a missing French key is a build error).
+- **Links and domain** — `website/src/site.ts`.
+
+Build it with `make website-build` (`cd website && npm ci && npm run build`) and make sure it
+succeeds. When you add, rename or remove a tool, update the site's tool list and copy too.
+
+## Releases
+
+`make package-release` builds the release binary **and the compiled website**, and bundles
+both. A release always ships the site: the script runs `npm ci && npm run build` in `website/`
+and includes `website/dist/` in the tarball, and it fails the release if the site cannot be
+built. Never cut a release without the compiled website.
+
 ## Adding a tool
 
 1. Model the result in `gilfoyle-core` and add a method to the driving port.
 2. Implement the read or mutation in a driven adapter behind a narrow port.
 3. Translate it in the `#[tool_router]` impl in `gilfoyle-server` (a few lines, no logic).
 4. Cover it with unit tests; extend the SSH integration test when the wire shape changes.
+5. Update the website: the tool table in `website/src/content/docs/{en,fr}/tools.md` and any
+   affected copy in `website/src/i18n/{en,fr}.ts`, then `make website-build`.
 
 If the tool is a read, add it to `gilfoyle-client`'s read set so it can be fanned out.
 
@@ -79,5 +104,6 @@ If the tool is a read, add it to `gilfoyle-client`'s read set so it can be fanne
 - `docs/adr/` — decisions worth remembering (0005/0006 for the SSH transport and key
   authentication; 0007–0009 for the PackageKit surface and its no-install guarantee; 0010 for
   the Docker socket, its closed operation set and its regex allowlist).
+- `website/` — the bilingual marketing + docs site; keep it in sync (see above).
 - `Makefile` — every task; run `make help`.
 - `fuzz/` — an independent workspace; `make fuzz` runs it on nightly with ASan.
