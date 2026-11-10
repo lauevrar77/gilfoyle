@@ -117,6 +117,34 @@ A package that is unsigned or cannot be verified. Gilfoyle always refuses it, an
 trusts a new signing key.
 _Avoid_: unsigned package
 
+## Containers
+
+**Container**:
+A Docker container on the host, managed as one thing. Gilfoyle can inspect it and start,
+stop or restart it, but never create or remove it.
+_Avoid_: pod, workload
+
+**Container name**:
+The identifier a container was created with (`web`, `worker-1`), without Docker's leading
+`/`. A container may have several names; a short id is a valid reference too.
+_Avoid_: container id (when a name is meant)
+
+**Container state**:
+The lifecycle state of a container: `created`, `running`, `paused`, `restarting`,
+`removing`, `exited`, `dead`.
+_Avoid_: status
+
+**Managed container**:
+A container whose name matches an entry in `[docker] manage_containers`. Only managed
+containers may be started, stopped or restarted.
+_Avoid_: allowed container
+
+**Container allowlist**:
+The set of managed containers. An entry is an exact name, or a `re:` regular expression
+anchored to the whole name. It is empty by default, so every start, stop and restart is
+refused until the operator opts in.
+_Avoid_: whitelist, permitted list
+
 ## Trust
 
 **Principal**:

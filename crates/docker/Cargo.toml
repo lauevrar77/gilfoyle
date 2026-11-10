@@ -1,0 +1,23 @@
+[package]
+name = "gilfoyle-docker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Gilfoyle driven adapter that controls Docker over its UNIX socket."
+
+[lints]
+workspace = true
+
+[dependencies]
+gilfoyle-core = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+tower-service = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

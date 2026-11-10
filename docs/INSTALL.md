@@ -18,6 +18,10 @@ The node is what the systemd unit and polkit rule below install.
   the package tools. It is not present on a minimal host; without it the package tools
   report "PackageKit is unavailable". Install order: the backend first, then `packagekit`,
   then verify `packagekitd` is reachable on the system bus.
+- **Docker** **only if** you want the container tools. The daemon socket
+  (`/var/run/docker.sock`) is **root-equivalent**: expose it through a socket proxy and
+  point `[docker] endpoint` at the proxy's socket, rather than adding `gilfoyle` to the
+  `docker` group.
 - The binary is dynamically linked (the SSH crypto backend `ring` needs a C toolchain).
 
 Each answer below (bind address and port, managed units, package operations, client keys)
@@ -62,6 +66,10 @@ sudo apt-get install -y polkitd                     # Debian/Ubuntu
 sudo apt-get install -y packagekit                  # Debian/Ubuntu; dnf on Rocky
 /usr/local/bin/gilfoyle packagekit polkit-rule \
   | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-packagekit.rules > /dev/null
+
+# 9. containers (optional; if [docker] manage_containers is set). No polkit: grant socket
+#    access narrowly. Prefer a socket proxy (see the README, "Authorising Docker access")
+#    over adding gilfoyle to the docker group, and point [docker] endpoint at its socket.
 ```
 
 ### `/etc/gilfoyle/config.toml`
@@ -74,7 +82,9 @@ host_key = "/etc/gilfoyle/ssh_host_ed25519_key"
 [tools]
 enabled = ["get_uptime", "list_units", "unit_status", "start_unit", "stop_unit",
            "list_packages", "list_updates", "preview_upgrade",
-           "refresh_package_cache", "upgrade_packages"]
+           "refresh_package_cache", "upgrade_packages",
+           "list_containers", "container_status", "start_container", "stop_container",
+           "restart_container"]
 
 [systemd]
 manage_units = ["nginx.service"]          # empty (default) means none may be started/stopped
@@ -82,6 +92,11 @@ manage_units = ["nginx.service"]          # empty (default) means none may be st
 [packagekit]
 allow = []                                # subset of ["refresh", "upgrade"]; empty means none;
                                           # there is no install/remove, ever
+
+[docker]
+endpoint = "/var/run/docker.sock"         # a UNIX socket path only (a proxy's socket is best)
+manage_containers = []                    # names, or "re:<regex>"; empty means none may be
+                                          # started/stopped/restarted. There is no create/remove.
 
 [[keys]]
 id = "nestor"                             # the principal, used in logs
@@ -165,7 +180,7 @@ sudo chown gilfoyle:gilfoyle /etc/gilfoyle/ssh_host_ed25519_key
 # 4. Rewrite /etc/gilfoyle/config.toml (0640 root:gilfoyle):
 #    - remove: [[tokens]], allow_public, allowed_hosts, allowed_origins, token_dir
 #    - add:    bind (address:port), host_key, and one [[keys]] per client public key
-#    - keep:   [tools] enabled, [systemd] manage_units, [packagekit] allow
+#    - keep:   [tools] enabled, [systemd] manage_units, [packagekit] allow, [docker]
 #    The old file is rejected with a migration message until this is done.
 
 # 5. Update the service unit (the environment file is now optional)
@@ -218,21 +233,30 @@ Questions (skip one only if its "no" branch is chosen):
   Q7. PACKAGE_OPS — whether to enable package operations, and which: none, "refresh"
       (apt update), or "refresh" + "upgrade" (apt upgrade). There is never an install or
       remove. If not none, ask whether PackageKit and a backend are already installed.
-  Q8. TOOL_GRANTS — whether each client key is narrowed to a subset of tools or inherits
+  Q8. MANAGED_CONTAINERS — the Docker containers that may be started/stopped/restarted, or
+      none. Entries are names or "re:<regex>" patterns; there is never a create or remove.
+      If not none, ask how the daemon socket will be exposed (a socket proxy is recommended;
+      adding gilfoyle to the docker group is the simple but root-equivalent alternative) and
+      which socket path to set as [docker] endpoint.
+  Q9. TOOL_GRANTS — whether each client key is narrowed to a subset of tools or inherits
       [tools] enabled.
 
 Then:
 1. Fresh install: follow docs/INSTALL.md "Fresh install (node)" with my answers. Update:
    follow the matching section under "Updating".
 2. Write /etc/gilfoyle/config.toml (0640 root:gilfoyle) with bind, host_key, [tools] enabled,
-   [systemd] manage_units, [packagekit] allow, and one [[keys]] per key in CLIENT_KEYS.
+   [systemd] manage_units, [packagekit] allow, [docker] endpoint and manage_containers, and
+   one [[keys]] per key in CLIENT_KEYS.
 3. Install packaging/gilfoyle.service, daemon-reload, enable --now gilfoyle.
 4. If MANAGED_UNITS is not empty: ensure polkit is installed, then
    `gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules`.
 5. If PACKAGE_OPS is not empty: ensure PackageKit and its backend are installed, then
    `gilfoyle packagekit polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-packagekit.rules`.
-6. Verify: `ss -ltnp | grep gilfoyle` shows BIND; `systemctl status gilfoyle` is active.
-7. Report back the node's SSH host:port and its `SHA256:...` host-key fingerprint exactly
+6. If MANAGED_CONTAINERS is not empty: set up the chosen socket exposure (prefer a proxy),
+   point [docker] endpoint at it, and confirm the gilfoyle user can reach that socket. There
+   is no polkit rule to install for Docker.
+7. Verify: `ss -ltnp | grep gilfoyle` shows BIND; `systemctl status gilfoyle` is active.
+8. Report back the node's SSH host:port and its `SHA256:...` host-key fingerprint exactly
    once, so I can configure clients. Report nothing else secret.
 ```
 

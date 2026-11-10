@@ -8,7 +8,9 @@ use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-use gilfoyle_core::{Allowlist, PackageAllowlist, PackageOperation, UnitName};
+use gilfoyle_core::{
+    Allowlist, ContainerAllowlist, DomainError, PackageAllowlist, PackageOperation, UnitName,
+};
 use gilfoyle_ssh::{AuthorizedKeys, KeyError};
 use serde::Deserialize;
 use thiserror::Error;
@@ -23,9 +25,17 @@ pub const DEFAULT_LOG_LEVEL: &str = "info";
 pub const DEFAULT_MAX_CONNECTIONS: usize = 32;
 /// Default cap on channels (MCP sessions) per connection.
 pub const DEFAULT_MAX_CHANNELS_PER_CONNECTION: usize = 8;
+/// Default path of the Docker daemon socket.
+pub const DEFAULT_DOCKER_ENDPOINT: &str = "/var/run/docker.sock";
+/// Default timeout for a single Docker API call, in seconds.
+pub const DEFAULT_DOCKER_CALL_TIMEOUT_SECONDS: u64 = 10;
+/// Default timeout for a Docker stop, in seconds.
+pub const DEFAULT_DOCKER_STOP_TIMEOUT_SECONDS: u64 = 30;
+/// Default number of containers returned by `list_containers`.
+pub const DEFAULT_DOCKER_LIMIT: usize = 100;
 
 /// Every tool a node can expose.
-pub const KNOWN_TOOLS: [&str; 10] = [
+pub const KNOWN_TOOLS: [&str; 15] = [
     "get_uptime",
     "list_units",
     "unit_status",
@@ -36,6 +46,11 @@ pub const KNOWN_TOOLS: [&str; 10] = [
     "preview_upgrade",
     "refresh_package_cache",
     "upgrade_packages",
+    "list_containers",
+    "container_status",
+    "start_container",
+    "stop_container",
+    "restart_container",
 ];
 
 /// The known tools as a set.
@@ -76,6 +91,12 @@ pub enum ConfigError {
     /// A `[packagekit] allow` entry was not `refresh` or `upgrade`.
     #[error("invalid operation in [packagekit] allow: {0}")]
     InvalidPackageOperation(String),
+    /// The Docker endpoint was not an absolute socket path.
+    #[error("invalid Docker endpoint; expected an absolute socket path, got: {0}")]
+    InvalidDockerEndpoint(String),
+    /// A `[docker] manage_containers` entry was not a valid name or `re:` pattern.
+    #[error("invalid entry in [docker] manage_containers: {0}")]
+    InvalidContainerEntry(String),
     /// A field from the HTTP-era configuration was found.
     #[error("`{0}` is from the old HTTP configuration and is no longer supported; remove it")]
     LegacyField(String),
@@ -109,6 +130,9 @@ pub struct RawConfig {
     /// package settings.
     #[serde(default)]
     pub packagekit: RawPackagekit,
+    /// Docker settings.
+    #[serde(default)]
+    pub docker: RawDocker,
     /// Authorized client keys.
     #[serde(default)]
     pub keys: Vec<RawKey>,
@@ -165,6 +189,28 @@ pub struct RawTools {
     pub enabled: Option<Vec<String>>,
 }
 
+/// Raw `[docker]` section.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawDocker {
+    /// Docker daemon socket path.
+    #[serde(default)]
+    pub endpoint: Option<String>,
+    /// Containers that may be started, stopped or restarted. Entries are names
+    /// or `re:<regex>` patterns. Empty means none may.
+    #[serde(default)]
+    pub manage_containers: Vec<String>,
+    /// Timeout for a single API call, in seconds.
+    #[serde(default)]
+    pub call_timeout_seconds: Option<u64>,
+    /// Timeout for a stop, in seconds.
+    #[serde(default)]
+    pub stop_timeout_seconds: Option<u64>,
+    /// Maximum number of containers returned by a listing.
+    #[serde(default)]
+    pub default_limit: Option<usize>,
+}
+
 /// Raw `[[keys]]` entry.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -203,6 +249,16 @@ pub struct Config {
     pub package_poll_timeout_seconds: Option<u64>,
     /// Maximum number of package entries returned in a report.
     pub package_default_limit: Option<usize>,
+    /// Docker daemon socket path.
+    pub docker_endpoint: PathBuf,
+    /// Containers that may be started, stopped or restarted.
+    pub container_allowlist: ContainerAllowlist,
+    /// Timeout for a single Docker API call, in seconds.
+    pub docker_call_timeout_seconds: Option<u64>,
+    /// Timeout for a Docker stop, in seconds.
+    pub docker_stop_timeout_seconds: Option<u64>,
+    /// Maximum number of containers returned by a listing.
+    pub docker_default_limit: Option<usize>,
     /// Authorized client keys.
     pub keys: AuthorizedKeys,
 }
@@ -253,6 +309,11 @@ pub fn resolve_config(
         allow_transitive_changes: raw.packagekit.allow_transitive_changes,
         package_poll_timeout_seconds: raw.packagekit.poll_timeout_seconds,
         package_default_limit: raw.packagekit.default_limit,
+        docker_endpoint: resolve_docker_endpoint(raw.docker.endpoint)?,
+        container_allowlist: resolve_container_allowlist(&raw.docker.manage_containers)?,
+        docker_call_timeout_seconds: raw.docker.call_timeout_seconds,
+        docker_stop_timeout_seconds: raw.docker.stop_timeout_seconds,
+        docker_default_limit: raw.docker.default_limit,
         keys: resolve_keys(&raw.keys)?,
     })
 }
@@ -312,6 +373,28 @@ pub fn resolve_package_allowlist(operations: &[String]) -> Result<PackageAllowli
         resolved.insert(parsed);
     }
     Ok(PackageAllowlist::new(resolved))
+}
+
+/// Normalise the Docker endpoint. Only an absolute UNIX socket path is
+/// accepted; a scheme (`tcp://`, `http://`, …) is refused (fail-closed).
+pub fn resolve_docker_endpoint(endpoint: Option<String>) -> Result<PathBuf, ConfigError> {
+    let endpoint = endpoint.unwrap_or_else(|| DEFAULT_DOCKER_ENDPOINT.to_string());
+    let trimmed = endpoint.trim();
+    if trimmed.contains("://") || !trimmed.starts_with('/') {
+        return Err(ConfigError::InvalidDockerEndpoint(endpoint));
+    }
+    Ok(PathBuf::from(trimmed))
+}
+
+/// Build the container allowlist. Invalid names or patterns fail the load
+/// (fail-closed).
+pub fn resolve_container_allowlist(entries: &[String]) -> Result<ContainerAllowlist, ConfigError> {
+    ContainerAllowlist::parse(entries.to_vec()).map_err(|error| match error {
+        DomainError::InvalidContainerRef(entry) | DomainError::InvalidContainerPattern(entry) => {
+            ConfigError::InvalidContainerEntry(entry)
+        }
+        other => ConfigError::InvalidContainerEntry(other.to_string()),
+    })
 }
 
 fn resolve_keys(raw: &[RawKey]) -> Result<AuthorizedKeys, ConfigError> {

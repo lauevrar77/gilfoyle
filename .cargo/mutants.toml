@@ -15,6 +15,7 @@ exclude_globs = [
     "crates/ssh/src/hostkey.rs",
     "crates/client/src/node.rs",
     "crates/client/src/lib.rs",
+    "crates/docker/src/transport.rs",
 ]
 
 # The read-only retry guard decides whether a failed call is retried on a fresh

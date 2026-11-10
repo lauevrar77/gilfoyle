@@ -6,9 +6,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gilfoyle_core::{
-    PackageAdmin, PackageManager, PackageService, ServiceCatalog, ServiceControl, SystemAdmin,
-    SystemService, SystemdAdmin, SystemdService,
+    ContainerCatalog, ContainerControl, DockerAdmin, DockerService, PackageAdmin, PackageManager,
+    PackageService, ServiceCatalog, ServiceControl, SystemAdmin, SystemService, SystemdAdmin,
+    SystemdService,
 };
+use gilfoyle_docker::LazyDocker;
 use gilfoyle_packagekit::{
     DEFAULT_CALL_TIMEOUT, DEFAULT_LIMIT, DEFAULT_POLL_TIMEOUT, LazyPackagekit,
 };
@@ -16,7 +18,7 @@ use gilfoyle_ssh::{Principal, ServiceFactory, SshServer, hostkey, policy};
 use gilfoyle_system::ProcUptime;
 use gilfoyle_systemd::LazySystemd;
 
-use crate::config::Config;
+use crate::config::{Config, DEFAULT_DOCKER_LIMIT};
 use crate::mcp::GilfoyleServer;
 
 /// Builds a [`GilfoyleServer`] per authenticated key, with that key's tool grant.
@@ -24,6 +26,7 @@ pub struct ServiceBuilder {
     admin: Arc<dyn SystemAdmin>,
     systemd: Arc<dyn SystemdAdmin>,
     packages: Arc<dyn PackageAdmin>,
+    docker: Arc<dyn DockerAdmin>,
     global: Arc<BTreeSet<String>>,
     grants: HashMap<String, Option<BTreeSet<String>>>,
 }
@@ -38,6 +41,7 @@ impl ServiceFactory for ServiceBuilder {
             Arc::clone(&self.admin),
             Arc::clone(&self.systemd),
             Arc::clone(&self.packages),
+            Arc::clone(&self.docker),
             Some(tools),
         )
     }
@@ -73,6 +77,31 @@ pub async fn run(config: Config) -> Result<(), String> {
         config.allow_transitive_changes,
     ));
 
+    let docker_call_timeout = Duration::from_secs(
+        config
+            .docker_call_timeout_seconds
+            .unwrap_or(gilfoyle_docker::DEFAULT_CALL_TIMEOUT.as_secs()),
+    );
+    let docker_stop_timeout = Duration::from_secs(
+        config
+            .docker_stop_timeout_seconds
+            .unwrap_or(gilfoyle_docker::DEFAULT_STOP_TIMEOUT.as_secs()),
+    );
+    let docker_limit = config.docker_default_limit.unwrap_or(DEFAULT_DOCKER_LIMIT);
+    let lazy_docker = Arc::new(LazyDocker::socket(
+        config.docker_endpoint.clone(),
+        docker_call_timeout,
+        docker_stop_timeout,
+        docker_limit,
+    ));
+    let container_catalog: Arc<dyn ContainerCatalog> = lazy_docker.clone();
+    let container_control: Arc<dyn ContainerControl> = lazy_docker;
+    let docker: Arc<dyn DockerAdmin> = Arc::new(DockerService::new(
+        container_catalog,
+        container_control,
+        config.container_allowlist.clone(),
+    ));
+
     let host_key = hostkey::load(&config.host_key).map_err(|error| error.to_string())?;
 
     let grants = config
@@ -85,6 +114,7 @@ pub async fn run(config: Config) -> Result<(), String> {
         admin,
         systemd,
         packages,
+        docker,
         global: Arc::new(config.enabled_tools.clone()),
         grants,
     };

@@ -27,6 +27,15 @@ pub enum DomainError {
     /// A package operation was not `refresh` or `upgrade`.
     #[error("unknown package operation: {0}")]
     UnknownPackageOperation(String),
+    /// A container reference was empty or contained disallowed characters.
+    #[error("invalid container reference: {0}")]
+    InvalidContainerRef(String),
+    /// A container allowlist entry was not a valid `re:` regular expression.
+    #[error("invalid container allowlist pattern: {0}")]
+    InvalidContainerPattern(String),
+    /// A container state filter value was not a known lifecycle state.
+    #[error("unknown container state: {0}")]
+    UnknownContainerState(String),
 }
 
 /// Errors raised by an outbound (driven) adapter while probing the host.
@@ -86,6 +95,37 @@ pub enum SystemdError {
     },
 }
 
+/// Errors raised by the Docker adapter.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum DockerError {
+    /// The daemon socket could not be reached or the call could not be made.
+    #[error("Docker is unavailable: {0}")]
+    Unavailable(String),
+    /// The container does not exist.
+    #[error("container `{0}` not found")]
+    NotFound(String),
+    /// The operation was refused for lack of authorisation (socket permissions).
+    #[error("not authorised for container `{0}`: {1}")]
+    Forbidden(String, String),
+    /// Docker rejected the request as conflicting with the container's state.
+    #[error("container `{0}` is in a conflicting state: {1}")]
+    Conflict(String, String),
+    /// Docker rejected the request as invalid.
+    #[error("invalid Docker request: {0}")]
+    Invalid(String),
+    /// The call timed out.
+    #[error("timed out talking to Docker: {0}")]
+    Timeout(String),
+    /// Any other Docker error, kept verbatim for diagnosis.
+    #[error("Docker error (HTTP {status}): {message}")]
+    Other {
+        /// The HTTP status code.
+        status: u16,
+        /// Docker's error message.
+        message: String,
+    },
+}
+
 /// Errors surfaced by the application layer (the driving ports).
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum AppError {
@@ -107,4 +147,10 @@ pub enum AppError {
     /// A PackageKit operation failed.
     #[error(transparent)]
     Package(#[from] PackageError),
+    /// A container is not in the allowlist, so it may not be mutated.
+    #[error("container `{0}` is not a managed container")]
+    ContainerNotManaged(String),
+    /// A Docker operation failed.
+    #[error(transparent)]
+    Docker(#[from] DockerError),
 }

@@ -7,9 +7,10 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use gilfoyle_core::{
-    PackageAdmin, PackageFilter, PackageList, RefreshReport, Severity, SystemAdmin, SystemdAdmin,
-    UnitActionOutcome, UnitFilter, UnitList, UnitStatus, UnitType, UpdateFilter, UpdateList,
-    UpgradePlan, UpgradeReport, UptimeReport,
+    ContainerActionOutcome, ContainerFilter, ContainerList, ContainerState, ContainerStatus,
+    DockerAdmin, PackageAdmin, PackageFilter, PackageList, RefreshReport, Severity, SystemAdmin,
+    SystemdAdmin, UnitActionOutcome, UnitFilter, UnitList, UnitStatus, UnitType, UpdateFilter,
+    UpdateList, UpgradePlan, UpgradeReport, UptimeReport,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
@@ -26,6 +27,9 @@ const DEFAULT_LIST_LIMIT: usize = 100;
 
 /// Default number of entries returned by the package tools.
 const DEFAULT_PACKAGES_LIMIT: usize = 200;
+
+/// Default number of containers returned by `list_containers`.
+const DEFAULT_CONTAINERS_LIMIT: usize = 100;
 
 /// Parameters of `list_units`.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -122,6 +126,43 @@ fn default_true() -> bool {
     true
 }
 
+/// Parameters of `list_containers`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ListContainersParams {
+    /// Only return containers in this lifecycle state
+    /// (`created`, `running`, `paused`, `restarting`, `removing`, `exited`, `dead`).
+    #[serde(default)]
+    state: Option<String>,
+    /// Only return containers whose name contains this substring (case-insensitive).
+    #[serde(default)]
+    name_contains: Option<String>,
+    /// Maximum number of containers to return. Defaults to 100.
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+impl ListContainersParams {
+    fn into_filter(self) -> Result<ContainerFilter, String> {
+        let state = match self.state {
+            Some(value) => Some(ContainerState::parse(&value).map_err(|error| error.to_string())?),
+            None => None,
+        };
+        Ok(ContainerFilter {
+            state,
+            name_contains: self.name_contains,
+            limit: Some(self.limit.unwrap_or(DEFAULT_CONTAINERS_LIMIT)),
+        })
+    }
+}
+
+/// Parameters of `container_status`, `start_container`, `stop_container` and
+/// `restart_container`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct ContainerRefParams {
+    /// The container name or id.
+    container: String,
+}
+
 /// Turn a start/stop outcome into a tool result, marking a non-`done` job as an error.
 fn outcome_result(outcome: UnitActionOutcome) -> Result<Json<UnitActionOutcome>, String> {
     if outcome.job_result.is_success() {
@@ -143,6 +184,7 @@ pub struct GilfoyleServer {
     admin: Arc<dyn SystemAdmin>,
     systemd: Arc<dyn SystemdAdmin>,
     packages: Arc<dyn PackageAdmin>,
+    docker: Arc<dyn DockerAdmin>,
     enabled_tools: Option<BTreeSet<String>>,
     tool_router: ToolRouter<Self>,
 }
@@ -154,12 +196,14 @@ impl GilfoyleServer {
         admin: Arc<dyn SystemAdmin>,
         systemd: Arc<dyn SystemdAdmin>,
         packages: Arc<dyn PackageAdmin>,
+        docker: Arc<dyn DockerAdmin>,
         enabled_tools: Option<BTreeSet<String>>,
     ) -> Self {
         Self {
             admin,
             systemd,
             packages,
+            docker,
             enabled_tools,
             tool_router: Self::tool_router(),
         }
@@ -320,11 +364,93 @@ impl GilfoyleServer {
             .map(Json)
             .map_err(|error| error.to_string())
     }
+
+    /// List Docker containers.
+    #[tool(
+        description = "List Docker containers, optionally filtered by state or name",
+        annotations(read_only_hint = true)
+    )]
+    async fn list_containers(
+        &self,
+        Parameters(params): Parameters<ListContainersParams>,
+    ) -> Result<Json<ContainerList>, String> {
+        let filter = params.into_filter()?;
+        let containers = self
+            .docker
+            .list_containers(&filter)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(Json(ContainerList { containers }))
+    }
+
+    /// Show the status of one Docker container.
+    #[tool(
+        description = "Show the detailed status of one Docker container",
+        annotations(read_only_hint = true)
+    )]
+    async fn container_status(
+        &self,
+        Parameters(params): Parameters<ContainerRefParams>,
+    ) -> Result<Json<ContainerStatus>, String> {
+        self.docker
+            .container_status(&params.container)
+            .await
+            .map(Json)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Start a managed Docker container.
+    #[tool(
+        description = "Start a Docker container (only containers listed in [docker] manage_containers)",
+        annotations(idempotent_hint = true)
+    )]
+    async fn start_container(
+        &self,
+        Parameters(params): Parameters<ContainerRefParams>,
+    ) -> Result<Json<ContainerActionOutcome>, String> {
+        self.docker
+            .start_container(&params.container)
+            .await
+            .map(Json)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Stop a managed Docker container.
+    #[tool(
+        description = "Stop a Docker container (only containers listed in [docker] manage_containers)",
+        annotations(destructive_hint = true, idempotent_hint = true)
+    )]
+    async fn stop_container(
+        &self,
+        Parameters(params): Parameters<ContainerRefParams>,
+    ) -> Result<Json<ContainerActionOutcome>, String> {
+        self.docker
+            .stop_container(&params.container)
+            .await
+            .map(Json)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Restart a managed Docker container.
+    #[tool(
+        description = "Restart a Docker container (only containers listed in [docker] manage_containers)",
+        annotations(destructive_hint = true, idempotent_hint = true)
+    )]
+    async fn restart_container(
+        &self,
+        Parameters(params): Parameters<ContainerRefParams>,
+    ) -> Result<Json<ContainerActionOutcome>, String> {
+        self.docker
+            .restart_container(&params.container)
+            .await
+            .map(Json)
+            .map_err(|error| error.to_string())
+    }
 }
 
 #[tool_handler(
     name = "gilfoyle",
-    instructions = "Administer a Linux host: read the uptime, inspect systemd units, start or stop allowlisted units, and inspect or upgrade packages (never install or remove)."
+    instructions = "Administer a Linux host: read the uptime, inspect systemd units, start or stop allowlisted units, inspect Docker containers and start, stop or restart allowlisted ones, and inspect or upgrade packages (never install or remove)."
 )]
 impl ServerHandler for GilfoyleServer {
     async fn list_tools(
@@ -411,5 +537,39 @@ mod tests {
     #[test]
     fn refresh_defaults_to_force() {
         assert!(default_true());
+    }
+
+    #[test]
+    fn list_containers_filter_parses_state_and_defaults_the_limit() {
+        let filter = ListContainersParams {
+            state: Some("running".to_string()),
+            name_contains: Some("web".to_string()),
+            limit: None,
+        }
+        .into_filter()
+        .unwrap();
+        assert_eq!(filter.state, Some(ContainerState::Running));
+        assert_eq!(filter.name_contains.as_deref(), Some("web"));
+        assert_eq!(filter.limit, Some(DEFAULT_CONTAINERS_LIMIT));
+
+        let filter = ListContainersParams {
+            state: None,
+            name_contains: None,
+            limit: Some(5),
+        }
+        .into_filter()
+        .unwrap();
+        assert_eq!(filter.state, None);
+        assert_eq!(filter.limit, Some(5));
+
+        assert!(
+            ListContainersParams {
+                state: Some("nonsense".to_string()),
+                name_contains: None,
+                limit: None,
+            }
+            .into_filter()
+            .is_err()
+        );
     }
 }

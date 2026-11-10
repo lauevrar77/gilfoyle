@@ -1,7 +1,8 @@
 use gilfoyle_core::PackageOperation;
 use gilfoyle_server::config::{
-    ConfigError, DEFAULT_HOST_KEY_PATH, DEFAULT_LOG_LEVEL, DEFAULT_MAX_CHANNELS_PER_CONNECTION,
-    DEFAULT_MAX_CONNECTIONS, RawConfig, known_tools, parse_bind, resolve_config, resolve_enabled,
+    ConfigError, DEFAULT_DOCKER_ENDPOINT, DEFAULT_HOST_KEY_PATH, DEFAULT_LOG_LEVEL,
+    DEFAULT_MAX_CHANNELS_PER_CONNECTION, DEFAULT_MAX_CONNECTIONS, RawConfig, known_tools,
+    parse_bind, resolve_config, resolve_docker_endpoint, resolve_enabled,
 };
 use gilfoyle_ssh::russh::keys::{Algorithm, PrivateKey};
 
@@ -273,4 +274,104 @@ fn known_tools_include_the_package_tools() {
     ] {
         assert!(tools.contains(tool), "{tool}");
     }
+}
+
+#[test]
+fn known_tools_include_the_container_tools() {
+    let tools = known_tools();
+    for tool in [
+        "list_containers",
+        "container_status",
+        "start_container",
+        "stop_container",
+        "restart_container",
+    ] {
+        assert!(tools.contains(tool), "{tool}");
+    }
+}
+
+#[test]
+fn docker_defaults_are_fail_closed() {
+    let config = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+        public_key()
+    ))
+    .unwrap();
+    assert_eq!(
+        config.docker_endpoint,
+        std::path::PathBuf::from(DEFAULT_DOCKER_ENDPOINT)
+    );
+    assert!(config.container_allowlist.is_empty());
+    assert_eq!(config.docker_call_timeout_seconds, None);
+    assert_eq!(config.docker_stop_timeout_seconds, None);
+    assert_eq!(config.docker_default_limit, None);
+}
+
+#[test]
+fn resolves_the_container_allowlist_and_options() {
+    let config = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n\
+         [docker]\n\
+         endpoint = \"/run/docker.sock\"\n\
+         manage_containers = [\"web\", \"re:^worker-[0-9]+$\"]\n\
+         call_timeout_seconds = 5\n\
+         stop_timeout_seconds = 20\n\
+         default_limit = 50\n\
+         [[keys]]\n\
+         id = \"a\"\n\
+         public_key = \"{}\"\n",
+        public_key()
+    ))
+    .unwrap();
+    assert_eq!(
+        config.docker_endpoint,
+        std::path::PathBuf::from("/run/docker.sock")
+    );
+    assert!(config.container_allowlist.contains("web"));
+    assert!(config.container_allowlist.contains("worker-1"));
+    assert!(!config.container_allowlist.contains("worker-x"));
+    assert_eq!(config.docker_call_timeout_seconds, Some(5));
+    assert_eq!(config.docker_stop_timeout_seconds, Some(20));
+    assert_eq!(config.docker_default_limit, Some(50));
+}
+
+#[test]
+fn rejects_a_non_socket_docker_endpoint() {
+    for endpoint in ["tcp://1.2.3.4:2375", "http://localhost", "relative/path"] {
+        let result = resolve(&format!(
+            "bind = \"127.0.0.1:2222\"\n[docker]\nendpoint = \"{endpoint}\"\n[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+            public_key()
+        ));
+        assert_eq!(
+            result.unwrap_err(),
+            ConfigError::InvalidDockerEndpoint(endpoint.to_string())
+        );
+    }
+}
+
+#[test]
+fn rejects_invalid_container_entries() {
+    for entry in ["bad name!", "re:(", "re:"] {
+        let result = resolve(&format!(
+            "bind = \"127.0.0.1:2222\"\n[docker]\nmanage_containers = [\"{entry}\"]\n[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+            public_key()
+        ));
+        assert_eq!(
+            result.unwrap_err(),
+            ConfigError::InvalidContainerEntry(entry.to_string())
+        );
+    }
+}
+
+#[test]
+fn resolve_docker_endpoint_trims_and_defaults() {
+    assert_eq!(
+        resolve_docker_endpoint(None).unwrap(),
+        std::path::PathBuf::from(DEFAULT_DOCKER_ENDPOINT)
+    );
+    assert_eq!(
+        resolve_docker_endpoint(Some("  /run/docker.sock  ".to_string())).unwrap(),
+        std::path::PathBuf::from("/run/docker.sock")
+    );
+    assert!(resolve_docker_endpoint(Some(String::new())).is_err());
 }

@@ -46,6 +46,11 @@ ReadOnlyPaths=/proc/uptime
 #
 # PackageKit is reached the same way. Install its rule to authorise refresh/upgrade:
 #   gilfoyle packagekit polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-packagekit.rules > /dev/null
+#
+# Docker is reached over its UNIX socket (AF_UNIX, already allowed). No directive is needed
+# to connect: ProtectSystem=strict does not impede connect() on a socket. Because the socket
+# is root-equivalent, expose it through a socket proxy and point [docker] endpoint at it
+# rather than adding this user to the docker group.
 
 [Install]
 WantedBy=multi-user.target

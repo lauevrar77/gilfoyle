@@ -18,6 +18,7 @@ gilfoyle-core = { workspace = true }
 gilfoyle-system = { workspace = true }
 gilfoyle-systemd = { workspace = true }
 gilfoyle-packagekit = { workspace = true }
+gilfoyle-docker = { workspace = true }
 gilfoyle-ssh = { workspace = true }
 gilfoyle-client = { workspace = true }
 

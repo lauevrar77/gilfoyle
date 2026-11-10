@@ -9,15 +9,20 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 mod application;
+mod docker;
 mod domain;
 mod error;
 mod packagekit;
 mod ports;
 mod systemd;
 
-pub use application::{PackageService, SystemService, SystemdService};
+pub use application::{DockerService, PackageService, SystemService, SystemdService};
+pub use docker::{
+    Container, ContainerAction, ContainerActionOutcome, ContainerAllowlist, ContainerFilter,
+    ContainerIdentity, ContainerList, ContainerRef, ContainerState, ContainerStatus,
+};
 pub use domain::{Uptime, UptimeReport};
-pub use error::{AppError, DomainError, SystemError, SystemdError};
+pub use error::{AppError, DockerError, DomainError, SystemError, SystemdError};
 pub use packagekit::{
     AffectedPackage, Collector, Package, PackageAllowlist, PackageError, PackageEvent,
     PackageFilter, PackageId, PackageList, PackageOperation, PlannedAction, PlannedPackage,
@@ -30,8 +35,8 @@ pub use packagekit::{
     restart as pk_restart,
 };
 pub use ports::{
-    PackageAdmin, PackageManager, ServiceCatalog, ServiceControl, SystemAdmin, SystemdAdmin,
-    UptimeSource,
+    ContainerCatalog, ContainerControl, DockerAdmin, PackageAdmin, PackageManager, ServiceCatalog,
+    ServiceControl, SystemAdmin, SystemdAdmin, UptimeSource,
 };
 pub use systemd::{
     Allowlist, JobResult, Unit, UnitActionOutcome, UnitFilter, UnitList, UnitName, UnitStatus,

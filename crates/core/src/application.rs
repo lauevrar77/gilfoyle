@@ -3,7 +3,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::{
-    Allowlist, AppError, PackageAdmin, PackageAllowlist, PackageError, PackageFilter, PackageList,
+    Allowlist, AppError, Container, ContainerAction, ContainerActionOutcome, ContainerAllowlist,
+    ContainerCatalog, ContainerControl, ContainerFilter, ContainerRef, ContainerStatus,
+    DockerAdmin, PackageAdmin, PackageAllowlist, PackageError, PackageFilter, PackageList,
     PackageManager, PackageOperation, RefreshReport, ServiceCatalog, ServiceControl, SystemAdmin,
     SystemdAdmin, Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus, UpdateFilter,
     UpdateList, UpgradePlan, UpgradeReport, UptimeReport, UptimeSource,
@@ -160,5 +162,85 @@ impl PackageAdmin for PackageService {
             }));
         }
         Ok(self.manager.apply(&ids).await?)
+    }
+}
+
+/// Application service implementing the Docker driving port.
+///
+/// Reads pass straight through. Mutations resolve the reference to a container,
+/// check the allowlist against **all** of its names, then act by the resolved
+/// id (so a rename or recreation between the check and the action cannot target
+/// another container). All of this is pure logic, testable with fake ports.
+pub struct DockerService {
+    catalog: Arc<dyn ContainerCatalog>,
+    control: Arc<dyn ContainerControl>,
+    allowlist: ContainerAllowlist,
+}
+
+impl DockerService {
+    /// Build a service from a catalog port, a control port and the allowlist.
+    pub fn new(
+        catalog: Arc<dyn ContainerCatalog>,
+        control: Arc<dyn ContainerControl>,
+        allowlist: ContainerAllowlist,
+    ) -> Self {
+        Self {
+            catalog,
+            control,
+            allowlist,
+        }
+    }
+
+    /// Resolve, authorise and perform one lifecycle action on a container.
+    async fn mutate(
+        &self,
+        reference: &str,
+        action: ContainerAction,
+    ) -> Result<ContainerActionOutcome, AppError> {
+        let reference = ContainerRef::parse(reference)?;
+        let before = self.catalog.resolve(&reference).await?;
+        self.allowlist.ensure_managed(&before.names)?;
+
+        match action {
+            ContainerAction::Start => self.control.start_container(&before.id).await?,
+            ContainerAction::Stop => self.control.stop_container(&before.id).await?,
+            ContainerAction::Restart => self.control.restart_container(&before.id).await?,
+        }
+
+        let after = self
+            .catalog
+            .resolve(&ContainerRef::parse(&before.id)?)
+            .await?;
+        Ok(ContainerActionOutcome {
+            container: before.canonical_name().to_string(),
+            id: before.id,
+            action: action.as_str().to_string(),
+            state_before: before.state,
+            state_after: after.state,
+        })
+    }
+}
+
+#[async_trait]
+impl DockerAdmin for DockerService {
+    async fn list_containers(&self, filter: &ContainerFilter) -> Result<Vec<Container>, AppError> {
+        Ok(self.catalog.list_containers(filter).await?)
+    }
+
+    async fn container_status(&self, reference: &str) -> Result<ContainerStatus, AppError> {
+        let reference = ContainerRef::parse(reference)?;
+        Ok(self.catalog.container_status(&reference).await?)
+    }
+
+    async fn start_container(&self, reference: &str) -> Result<ContainerActionOutcome, AppError> {
+        self.mutate(reference, ContainerAction::Start).await
+    }
+
+    async fn stop_container(&self, reference: &str) -> Result<ContainerActionOutcome, AppError> {
+        self.mutate(reference, ContainerAction::Stop).await
+    }
+
+    async fn restart_container(&self, reference: &str) -> Result<ContainerActionOutcome, AppError> {
+        self.mutate(reference, ContainerAction::Restart).await
     }
 }

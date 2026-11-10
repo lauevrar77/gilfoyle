@@ -72,3 +72,17 @@ path = "fuzz_targets/package_id.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "container_ref"
+path = "fuzz_targets/container_ref.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "container_allowlist"
+path = "fuzz_targets/container_allowlist.rs"
+test = false
+doc = false
+bench = false

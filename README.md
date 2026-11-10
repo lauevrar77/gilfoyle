@@ -2,7 +2,8 @@
 
 A secure [MCP](https://modelcontextprotocol.io) server, written in Rust, that exposes Linux
 administration tools to an AI agent over **SSH**: reads are open, and the only mutations are
-starting and stopping systemd units the operator has allowlisted.
+starting and stopping allowlisted systemd units and Docker containers, and refreshing or
+upgrading allowlisted packages.
 
 Gilfoyle is built so that **it cannot execute anything**. There is no shell, no command
 passthrough and no scripting: every tool is a compiled function with fixed behaviour, and
@@ -11,8 +12,10 @@ the only host interaction in the whole codebase is reading a handful of fixed fi
 SSH is used purely as a **protocol**: the server serves an MCP subsystem and refuses every
 `shell`, `exec`, `pty` and forwarding request. A connection can never obtain a shell.
 
-> Status: early. Tools so far: `get_uptime`, `list_units`, `unit_status`, `start_unit`,
-> `stop_unit`.
+> Status: early. Tools so far: `get_uptime`; systemd units (`list_units`, `unit_status`,
+> `start_unit`, `stop_unit`); Docker containers (`list_containers`, `container_status`,
+> `start_container`, `stop_container`, `restart_container`); packages (`list_packages`,
+> `list_updates`, `preview_upgrade`, `refresh_package_cache`, `upgrade_packages`).
 
 ## Two roles
 
@@ -36,15 +39,18 @@ AI agent ──MCP(stdio)──▶ gilfoyle client ──SSH──▶ gilfoyle n
 - `unsafe` is forbidden workspace-wide in our crates, and `clippy::disallowed_methods`
   makes any reference to `std::process::Command` a **compile error**.
 - systemd and PackageKit are reached over **in-process D-Bus**, never by spawning
-  `systemctl` or `apt`.
+  `systemctl` or `apt`; Docker is reached over its **UNIX socket**, never by spawning
+  `docker`.
 - Authentication is **public key only** (`none`, `password` and `keyboard-interactive` are
   refused). Each key may carry a **tool grant**; a read-only key cannot reach a mutation.
 - Mutations are **default-deny**: `start_unit` and `stop_unit` act only on units listed in
-  `[systemd] manage_units`, `refresh_package_cache` and `upgrade_packages` act only on the
-  operations listed in `[packagekit] allow`, and polkit is the authority behind them.
+  `[systemd] manage_units`, `start_container`/`stop_container`/`restart_container` act only on
+  containers listed in `[docker] manage_containers`, `refresh_package_cache` and
+  `upgrade_packages` act only on the operations listed in `[packagekit] allow`, and polkit is
+  the authority behind systemd and PackageKit.
 - **No install, no remove, by construction**: the package operation vocabulary is a closed
   enum with no install/remove variant, and an upgrade that would install or remove a package
-  is refused.
+  is refused. Docker has no create or remove operation for the same reason.
 - Configuration is fail-closed: no `bind`, no key or no host key means no start.
 - The client **pins** each node's host-key fingerprint; a mismatch fails the connection.
 
@@ -59,6 +65,7 @@ graph.
 | `gilfoyle-system` | driven adapter (host uptime) | read-only |
 | `gilfoyle-systemd` | driven adapter (systemd over D-Bus) | system bus |
 | `gilfoyle-packagekit` | driven adapter (PackageKit over D-Bus) | system bus |
+| `gilfoyle-docker` | driven adapter (Docker over its UNIX socket) | socket |
 | `gilfoyle-ssh` | driving adapter: embedded SSH server (russh) + auth/channel policy | network |
 | `gilfoyle-client` | driving adapter: multi-node aggregator | network |
 | `gilfoyle-server` | MCP handler, config, wiring + the `gilfoyle` binary | network |
@@ -80,8 +87,12 @@ graph.
   tools. It is not installed by default on a minimal host; when absent the package tools
   report a clear error. A backend package such as `packagekit` (plus `apt`/`dnf`) must be
   present and `packagekitd` reachable on the system bus.
-- The system bus, polkit and PackageKit are reached over `AF_UNIX`; the hardened unit
-  already allows it.
+- **Docker** — only for the container tools. When absent, or when the socket is not
+  reachable, the container tools report a clear error; the server still starts. Access to
+  `/var/run/docker.sock` is equivalent to root, so grant it narrowly (see *Authorising Docker
+  access*).
+- The system bus, polkit, PackageKit and the Docker socket are reached over `AF_UNIX`; the
+  hardened unit already allows it.
 
 **Run (client).**
 
@@ -117,6 +128,7 @@ enabled = [
   "list_units", "unit_status", "start_unit", "stop_unit",
   "list_packages", "list_updates", "preview_upgrade",
   "refresh_package_cache", "upgrade_packages",
+  "list_containers", "container_status", "start_container", "stop_container", "restart_container",
 ]
 
 [systemd]
@@ -135,6 +147,21 @@ allow_transitive_changes = false
 poll_timeout_seconds = 600
 # Maximum number of package entries returned in a report (default 200).
 default_limit = 200
+
+[docker]
+# Path to the Docker daemon socket (default /var/run/docker.sock). Only a UNIX
+# socket path is accepted; a TCP endpoint is refused.
+endpoint = "/var/run/docker.sock"
+# Containers that may be started, stopped or restarted. Empty (the default)
+# means none may. An entry is an exact name, or a `re:` regular expression
+# anchored to the whole name.
+manage_containers = ["web", "re:^worker-[0-9]+$"]
+# Timeout for a single API call, in seconds (default 10).
+call_timeout_seconds = 10
+# Timeout passed to Docker for a stop, in seconds (default 30).
+stop_timeout_seconds = 30
+# Maximum number of containers returned by a listing (default 100).
+default_limit = 100
 
 [[keys]]
 id = "nestor"
@@ -234,12 +261,33 @@ would install, remove, obsolete or downgrade a package, `upgrade_packages` refus
 `allow_transitive_changes = true`. Untrusted packages (missing signature, required signing
 key, EULA) are always refused: gilfoyle never answers `InstallSignature` or `AcceptEula`.
 
+### Docker tools
+
+Docker is reached over its **UNIX socket** with an in-process HTTP client; gilfoyle never
+spawns `docker`. The API version is negotiated via `GET /version` and pinned. There is
+deliberately **no create and no remove**: the operation set is list, inspect, start, stop and
+restart.
+
+| Tool | Arguments | Effect |
+|---|---|---|
+| `list_containers` | `state?`, `name_contains?`, `limit?` | list containers (read-only) |
+| `container_status` | `container` | detailed status of one container (read-only) |
+| `start_container` | `container` | start a **managed** container |
+| `stop_container` | `container` | stop a **managed** container |
+| `restart_container` | `container` | restart a **managed** container |
+
+`container` is a container name or id. Reads are open. The three mutations are
+**default-deny**: they act only on containers whose name matches `[docker] manage_containers`,
+and the action is performed on the resolved container id (so a rename between the check and
+the action cannot target another container).
+
 ### Through the client
 
 The client adds a required `node` argument to every tool (a label, or `all` for the read
-tools `get_uptime`, `list_units`, `unit_status`, `list_packages`, `list_updates` and
-`preview_upgrade`). `all` returns a per-node map, with a per-node error for any node that
-failed. A `list_nodes` tool reports each node's label, reachability and exposed tools.
+tools `get_uptime`, `list_units`, `unit_status`, `list_packages`, `list_updates`,
+`preview_upgrade`, `list_containers` and `container_status`). `all` returns a per-node map,
+with a per-node error for any node that failed. A `list_nodes` tool reports each node's
+label, reachability and exposed tools.
 
 ## Authorising unit control (polkit)
 
@@ -277,6 +325,24 @@ installed rule is missing or out of sync. PackageKit only exists on hosts that s
 its backend); on a minimal host the package tools report a clear "PackageKit is
 unavailable" error.
 
+## Authorising Docker access
+
+Docker has no polkit. Access to `/var/run/docker.sock` is equivalent to **root** — a
+`--privileged` container can mount the host — so how the socket is granted is a security
+decision. Gilfoyle narrows the *tool* surface (`[docker] manage_containers` is default-deny),
+but the socket is the real boundary.
+
+The recommended deployment puts a **socket proxy** in front of the daemon, exposing only the
+endpoints gilfoyle uses (`containers/json`, `containers/{id}/json`,
+`containers/{id}/start|stop|restart`), and points `[docker] endpoint` at the proxy's socket.
+The simple alternative — adding the `gilfoyle` user to the `docker` group — hands gilfoyle
+full control of the daemon; prefer the proxy, and keep `[docker] manage_containers` as narrow
+as possible in either case.
+
+The systemd unit already reaches `AF_UNIX`, and `ProtectSystem=strict` does not impede
+connecting to an existing socket (the system bus is reached the same way), so no extra
+hardening directive is needed.
+
 ## Threat model (summary)
 
 **In scope.** An attacker who reaches the SSH port, or who compromises the gilfoyle process,
@@ -284,12 +350,15 @@ must not gain code execution or host privileges.
 
 - **No code execution.** Tools are compiled functions; nothing accepts a command or path to
   run. The SSH handler refuses `shell`/`exec`/`pty` and all forwarding. systemd and
-  PackageKit are reached over in-process D-Bus, never by spawning `systemctl` or `apt`.
+  PackageKit are reached over in-process D-Bus, and Docker over its UNIX socket, never by
+  spawning `systemctl`, `apt` or `docker`.
 - **No install, no remove, by construction.** The package operation vocabulary is a closed
   enum with no install/remove variant; upgrades carry `ONLY_TRUSTED`, and a plan that would
-  install or remove a package is refused.
+  install or remove a package is refused. Docker has no create or remove operation at all.
 - **Least privilege.** Run as an unprivileged dedicated user (see the systemd unit);
-  mutations are enforced twice (the tool's allowlist and the polkit rule).
+  systemd and package mutations are enforced twice (the tool's allowlist and the polkit
+  rule). Docker has no polkit: its socket is root-equivalent, so grant it narrowly (a socket
+  proxy) and keep `[docker] manage_containers` tight.
 - **Auth.** Public keys only, mapped to a principal; per-key tool grants limit what a key
   can reach. The client pins host-key fingerprints, so SSH is not open to MITM.
 - **Fail-closed.** No bind, no key or no host key means no start; no allowed package
@@ -312,10 +381,12 @@ make install-hooks
 ```
 
 The mutation score is held at **100%**. Excluded: the composition root (`main.rs`) and the
-thin `russh`/`rmcp` transport glue (`gilfoyle-ssh`'s adapter and hostkey, `gilfoyle-client`'s
-session wiring, the server's `serve.rs`); their decisions live in pure, fully-tested modules.
-The systemd and PackageKit adapters are tested against **in-process mock buses**
-(peer-to-peer socket pairs), so no daemon or package manager is needed.
+thin `russh`/`rmcp`/`hyper` transport glue (`gilfoyle-ssh`'s adapter and hostkey,
+`gilfoyle-client`'s session wiring, the server's `serve.rs`, `gilfoyle-docker`'s
+`transport.rs`); their decisions live in pure, fully-tested modules. The systemd and
+PackageKit adapters are tested against **in-process mock buses** (peer-to-peer socket pairs)
+and the Docker adapter against an **in-process mock HTTP server** on a UNIX socket, so no
+daemon or package manager is needed.
 
 ## Installing on a host
 
@@ -337,6 +408,8 @@ sudo systemctl daemon-reload && sudo systemctl enable --now gilfoyle
 gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules > /dev/null
 # optional: packages, if [packagekit] allow is set and packagekit is installed
 gilfoyle packagekit polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-packagekit.rules > /dev/null
+# optional: containers, if [docker] manage_containers is set; grant socket access narrowly
+# (a socket proxy, not the docker group) — see "Authorising Docker access"
 ```
 
 `packaging/gilfoyle.service` is a hardened unit (dedicated `gilfoyle` user, `NoNewPrivileges`,

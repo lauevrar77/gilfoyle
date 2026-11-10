@@ -5,10 +5,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use gilfoyle_core::{
-    AppError, JobResult, Package, PackageAdmin, PackageFilter, PackageList, RefreshReport,
-    SystemAdmin, SystemError, SystemService, SystemdAdmin, SystemdError, Unit, UnitActionOutcome,
-    UnitFilter, UnitName, UnitStatus, UnitTimestamps, UpdateFilter, UpdateList, UpgradePlan,
-    UpgradeReport, Uptime, UptimeSource,
+    AppError, Container, ContainerActionOutcome, ContainerFilter, ContainerStatus, DockerAdmin,
+    JobResult, Package, PackageAdmin, PackageFilter, PackageList, RefreshReport, SystemAdmin,
+    SystemError, SystemService, SystemdAdmin, SystemdError, Unit, UnitActionOutcome, UnitFilter,
+    UnitName, UnitStatus, UnitTimestamps, UpdateFilter, UpdateList, UpgradePlan, UpgradeReport,
+    Uptime, UptimeSource,
 };
 use gilfoyle_server::GilfoyleServer;
 use rmcp::RoleClient;
@@ -152,12 +153,73 @@ struct TestClient;
 
 impl ClientHandler for TestClient {}
 
+/// A scriptable stand-in for the Docker driving port.
+#[derive(Clone, Default)]
+struct FakeDocker {
+    outcome: Option<ContainerActionOutcome>,
+}
+
+#[async_trait]
+impl DockerAdmin for FakeDocker {
+    async fn list_containers(&self, filter: &ContainerFilter) -> Result<Vec<Container>, AppError> {
+        Ok(filter.apply(vec![Container {
+            id: "abc".to_string(),
+            names: vec!["web".to_string()],
+            image: "nginx:latest".to_string(),
+            state: "running".to_string(),
+            status: "Up 3 hours".to_string(),
+        }]))
+    }
+
+    async fn container_status(&self, reference: &str) -> Result<ContainerStatus, AppError> {
+        Ok(ContainerStatus {
+            id: "abc".to_string(),
+            name: reference.trim_start_matches('/').to_string(),
+            image: "nginx:latest".to_string(),
+            state: "running".to_string(),
+            status: "running".to_string(),
+            health: Some("healthy".to_string()),
+            pid: Some(7),
+            exit_code: 0,
+            restart_count: 1,
+            created: "2024-05-01T12:00:00Z".to_string(),
+            started_at: None,
+            finished_at: None,
+        })
+    }
+
+    async fn start_container(&self, reference: &str) -> Result<ContainerActionOutcome, AppError> {
+        self.outcome
+            .clone()
+            .ok_or_else(|| AppError::ContainerNotManaged(reference.to_string()))
+    }
+
+    async fn stop_container(&self, reference: &str) -> Result<ContainerActionOutcome, AppError> {
+        self.outcome
+            .clone()
+            .ok_or_else(|| AppError::ContainerNotManaged(reference.to_string()))
+    }
+
+    async fn restart_container(&self, reference: &str) -> Result<ContainerActionOutcome, AppError> {
+        self.outcome
+            .clone()
+            .ok_or_else(|| AppError::ContainerNotManaged(reference.to_string()))
+    }
+}
+
 async fn serve(
     systemd: FakeSystemd,
+    docker: FakeDocker,
     enabled: Option<BTreeSet<String>>,
 ) -> RunningService<RoleClient, TestClient> {
     let admin: Arc<dyn SystemAdmin> = Arc::new(SystemService::new(FixedSource(3661.0)));
-    let handler = GilfoyleServer::new(admin, Arc::new(systemd), Arc::new(FakePackage), enabled);
+    let handler = GilfoyleServer::new(
+        admin,
+        Arc::new(systemd),
+        Arc::new(FakePackage),
+        Arc::new(docker),
+        enabled,
+    );
     let (server_io, client_io) = tokio::io::duplex(64 * 1024);
     tokio::spawn(async move {
         if let Ok(running) = rmcp::serve_server(handler, server_io).await {
@@ -189,17 +251,22 @@ async fn tool_names(client: &RunningService<RoleClient, TestClient>) -> Vec<Stri
 
 #[tokio::test]
 async fn lists_every_tool_and_serves_uptime() {
-    let client = serve(FakeSystemd::default(), None).await;
+    let client = serve(FakeSystemd::default(), FakeDocker::default(), None).await;
     assert_eq!(
         tool_names(&client).await,
         vec![
+            "container_status".to_string(),
             "get_uptime".to_string(),
+            "list_containers".to_string(),
             "list_packages".to_string(),
             "list_units".to_string(),
             "list_updates".to_string(),
             "preview_upgrade".to_string(),
             "refresh_package_cache".to_string(),
+            "restart_container".to_string(),
+            "start_container".to_string(),
             "start_unit".to_string(),
+            "stop_container".to_string(),
             "stop_unit".to_string(),
             "unit_status".to_string(),
             "upgrade_packages".to_string(),
@@ -216,7 +283,12 @@ async fn lists_every_tool_and_serves_uptime() {
 
 #[tokio::test]
 async fn lists_units_and_reports_status() {
-    let client = serve(FakeSystemd::default().with_unit("nginx.service"), None).await;
+    let client = serve(
+        FakeSystemd::default().with_unit("nginx.service"),
+        FakeDocker::default(),
+        None,
+    )
+    .await;
 
     let listed = client
         .peer()
@@ -237,7 +309,7 @@ async fn lists_units_and_reports_status() {
 
 #[tokio::test]
 async fn unknown_unit_type_is_a_tool_error() {
-    let client = serve(FakeSystemd::default(), None).await;
+    let client = serve(FakeSystemd::default(), FakeDocker::default(), None).await;
     let result = client
         .peer()
         .call_tool(call("list_units", json!({ "unit_type": "nonsense" })))
@@ -248,7 +320,7 @@ async fn unknown_unit_type_is_a_tool_error() {
 
 #[tokio::test]
 async fn missing_unit_status_is_a_tool_error() {
-    let client = serve(FakeSystemd::default(), None).await;
+    let client = serve(FakeSystemd::default(), FakeDocker::default(), None).await;
     let result = client
         .peer()
         .call_tool(call("unit_status", json!({ "name": "ghost" })))
@@ -259,7 +331,12 @@ async fn missing_unit_status_is_a_tool_error() {
 
 #[tokio::test]
 async fn start_reports_the_job_and_a_failed_job_is_an_error() {
-    let ok = serve(FakeSystemd::default().with_outcome("done"), None).await;
+    let ok = serve(
+        FakeSystemd::default().with_outcome("done"),
+        FakeDocker::default(),
+        None,
+    )
+    .await;
     let result = ok
         .peer()
         .call_tool(call("start_unit", json!({ "name": "nginx" })))
@@ -267,7 +344,12 @@ async fn start_reports_the_job_and_a_failed_job_is_an_error() {
         .unwrap();
     assert_eq!(result.structured_content.unwrap()["job_result"], "done");
 
-    let failed = serve(FakeSystemd::default().with_outcome("failed"), None).await;
+    let failed = serve(
+        FakeSystemd::default().with_outcome("failed"),
+        FakeDocker::default(),
+        None,
+    )
+    .await;
     let result = failed
         .peer()
         .call_tool(call("stop_unit", json!({ "name": "nginx" })))
@@ -278,7 +360,12 @@ async fn start_reports_the_job_and_a_failed_job_is_an_error() {
 
 #[tokio::test]
 async fn disabled_tools_are_hidden_and_rejected() {
-    let client = serve(FakeSystemd::default(), Some(BTreeSet::new())).await;
+    let client = serve(
+        FakeSystemd::default(),
+        FakeDocker::default(),
+        Some(BTreeSet::new()),
+    )
+    .await;
     assert!(tool_names(&client).await.is_empty());
 
     let result = client.peer().call_tool(call("get_uptime", json!({}))).await;
@@ -287,7 +374,7 @@ async fn disabled_tools_are_hidden_and_rejected() {
 
 #[tokio::test]
 async fn lists_packages_and_updates() {
-    let client = serve(FakeSystemd::default(), None).await;
+    let client = serve(FakeSystemd::default(), FakeDocker::default(), None).await;
 
     let listed = client
         .peer()
@@ -308,7 +395,7 @@ async fn lists_packages_and_updates() {
 
 #[tokio::test]
 async fn a_bad_severity_is_a_tool_error() {
-    let client = serve(FakeSystemd::default(), None).await;
+    let client = serve(FakeSystemd::default(), FakeDocker::default(), None).await;
     let result = client
         .peer()
         .call_tool(call("list_updates", json!({ "min_severity": "nonsense" })))
@@ -319,7 +406,7 @@ async fn a_bad_severity_is_a_tool_error() {
 
 #[tokio::test]
 async fn previews_refreshes_and_upgrades_packages() {
-    let client = serve(FakeSystemd::default(), None).await;
+    let client = serve(FakeSystemd::default(), FakeDocker::default(), None).await;
 
     let preview = client
         .peer()
@@ -341,4 +428,80 @@ async fn previews_refreshes_and_upgrades_packages() {
         .await
         .unwrap();
     assert_eq!(upgraded.structured_content.unwrap()["success"], true);
+}
+
+#[tokio::test]
+async fn lists_containers_and_reports_status() {
+    let client = serve(FakeSystemd::default(), FakeDocker::default(), None).await;
+
+    let listed = client
+        .peer()
+        .call_tool(call("list_containers", json!({})))
+        .await
+        .unwrap();
+    let containers = listed.structured_content.unwrap();
+    assert_eq!(containers["containers"][0]["names"][0], "web");
+    assert_eq!(containers["containers"][0]["state"], "running");
+
+    let status = client
+        .peer()
+        .call_tool(call("container_status", json!({ "container": "/web" })))
+        .await
+        .unwrap();
+    assert_eq!(status.structured_content.unwrap()["health"], "healthy");
+
+    let filtered = client
+        .peer()
+        .call_tool(call("list_containers", json!({ "state": "exited" })))
+        .await
+        .unwrap();
+    assert_eq!(
+        filtered.structured_content.unwrap()["containers"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+
+    let bad = client
+        .peer()
+        .call_tool(call("list_containers", json!({ "state": "nonsense" })))
+        .await
+        .unwrap();
+    assert_eq!(bad.is_error, Some(true));
+}
+
+#[tokio::test]
+async fn docker_mutations_report_the_outcome_and_refuse_unmanaged() {
+    let outcome = ContainerActionOutcome {
+        container: "web".to_string(),
+        id: "abc".to_string(),
+        action: "start".to_string(),
+        state_before: "exited".to_string(),
+        state_after: "running".to_string(),
+    };
+    let client = serve(
+        FakeSystemd::default(),
+        FakeDocker {
+            outcome: Some(outcome),
+        },
+        None,
+    )
+    .await;
+    let result = client
+        .peer()
+        .call_tool(call("start_container", json!({ "container": "web" })))
+        .await
+        .unwrap();
+    let value = result.structured_content.unwrap();
+    assert_eq!(value["action"], "start");
+    assert_eq!(value["state_after"], "running");
+
+    let denied = serve(FakeSystemd::default(), FakeDocker::default(), None).await;
+    let result = denied
+        .peer()
+        .call_tool(call("restart_container", json!({ "container": "web" })))
+        .await
+        .unwrap();
+    assert_eq!(result.is_error, Some(true));
 }

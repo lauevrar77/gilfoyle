@@ -1,9 +1,10 @@
 use async_trait::async_trait;
 
 use crate::{
-    AppError, PackageError, PackageFilter, PackageList, RefreshReport, SystemError, SystemdError,
-    Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus, UpdateFilter, UpdateList,
-    UpgradePlan, UpgradeReport, Uptime, UptimeReport,
+    AppError, Container, ContainerActionOutcome, ContainerFilter, ContainerIdentity, ContainerRef,
+    ContainerStatus, DockerError, PackageError, PackageFilter, PackageList, RefreshReport,
+    SystemError, SystemdError, Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus,
+    UpdateFilter, UpdateList, UpgradePlan, UpgradeReport, Uptime, UptimeReport,
 };
 
 /// Outbound (driven) port: a source of host uptime.
@@ -92,4 +93,55 @@ pub trait PackageAdmin: Send + Sync {
     async fn refresh_packages(&self, force: bool) -> Result<RefreshReport, AppError>;
     /// Apply available upgrades.
     async fn upgrade_packages(&self) -> Result<UpgradeReport, AppError>;
+}
+
+/// Outbound (driven) port: read-only access to Docker containers.
+///
+/// Implemented by the Docker adapter in `gilfoyle-docker`.
+#[async_trait]
+pub trait ContainerCatalog: Send + Sync {
+    /// List containers matching a filter.
+    async fn list_containers(
+        &self,
+        filter: &ContainerFilter,
+    ) -> Result<Vec<Container>, DockerError>;
+    /// Read the detailed status of one container.
+    async fn container_status(
+        &self,
+        reference: &ContainerRef,
+    ) -> Result<ContainerStatus, DockerError>;
+    /// Resolve a reference to the container's id, names and current state.
+    async fn resolve(&self, reference: &ContainerRef) -> Result<ContainerIdentity, DockerError>;
+}
+
+/// Outbound (driven) port: start, stop and restart Docker containers.
+///
+/// Implemented by the Docker adapter in `gilfoyle-docker`. There is no create
+/// or remove: the action vocabulary is closed in the core.
+#[async_trait]
+pub trait ContainerControl: Send + Sync {
+    /// Start the container with the given id.
+    async fn start_container(&self, id: &str) -> Result<(), DockerError>;
+    /// Stop the container with the given id.
+    async fn stop_container(&self, id: &str) -> Result<(), DockerError>;
+    /// Restart the container with the given id.
+    async fn restart_container(&self, id: &str) -> Result<(), DockerError>;
+}
+
+/// Inbound (driving) port: the Docker operations gilfoyle exposes.
+///
+/// References are taken as raw strings and normalised here, and mutations are
+/// checked against the allowlist before reaching the adapter.
+#[async_trait]
+pub trait DockerAdmin: Send + Sync {
+    /// List containers matching a filter.
+    async fn list_containers(&self, filter: &ContainerFilter) -> Result<Vec<Container>, AppError>;
+    /// Read the detailed status of one container.
+    async fn container_status(&self, reference: &str) -> Result<ContainerStatus, AppError>;
+    /// Start a managed container.
+    async fn start_container(&self, reference: &str) -> Result<ContainerActionOutcome, AppError>;
+    /// Stop a managed container.
+    async fn stop_container(&self, reference: &str) -> Result<ContainerActionOutcome, AppError>;
+    /// Restart a managed container.
+    async fn restart_container(&self, reference: &str) -> Result<ContainerActionOutcome, AppError>;
 }
