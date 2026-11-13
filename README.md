@@ -390,6 +390,11 @@ PackageKit adapters are tested against **in-process mock buses** (peer-to-peer s
 and the Docker adapter against an **in-process mock HTTP server** on a UNIX socket, so no
 daemon or package manager is needed.
 
+`make check` runs the **whole-workspace** mutation gate, serial and in place. It is slow, and
+CI runs it in full only on a weekly schedule, so **run `make check` locally before pushing**
+— a test gap elsewhere in the workspace will not be caught by the faster per-PR gate (see
+[Continuous integration](#continuous-integration)).
+
 ## Installing on a host
 
 The full procedure — a fresh install, the **migration from the old HTTP build**, and a
@@ -443,9 +448,17 @@ The client uses the same binary (`gilfoyle client`).
 
 GitHub Actions (`.github/workflows/`):
 
-- **`ci.yml`** — on every push and pull request: `cargo fmt --check`, `clippy -D warnings`,
-  `cargo test --workspace`, `cargo deny check`, `cargo audit`, and the **100% mutation
-  gate** (`cargo-mutants`). The mutation job runs in parallel with the fast checks.
+- **`ci.yml`** — on every push and pull request, the `check` job runs `cargo fmt --check`,
+  `clippy -D warnings`, `cargo test --workspace`, `cargo deny check` and `cargo audit`. The
+  **mutation gate** is split out:
+  - on a **pull request**, an **incremental** gate mutates only the lines the PR changes
+    (`cargo mutants --in-diff`), which is fast and covers what the author just wrote;
+  - on a **weekly schedule** (and on manual `workflow_dispatch`), the **full** gate runs
+    the entire workspace, fanned out over **8 shards** (`cargo mutants --shard k/8`) so it
+    finishes within a job.
+
+  Both gates still require a **100%** score. Because the full gate is not run on every
+  push, run `make check` — which runs the full gate locally — before pushing.
 - **`release.yml`** — on a `v*` tag: builds and packages the release (binary, deployment
   files and the compiled website) and publishes it with the `.sha256` checksum.
 
