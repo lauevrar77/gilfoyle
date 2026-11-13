@@ -52,12 +52,6 @@ adaptateurs systemd et PackageKit sont couverts par des bus simulés en processu
 Docker par un serveur HTTP simulé sur un socket UNIX, et le transport SSH par une paire
 client/serveur `russh` en processus.
 
-La barrière est scindée en CI : une pull request ne mute que les lignes qu'elle modifie
-(`--in-diff`), et l'espace de travail entier tourne en **8 shards** sur une planification
-hebdomadaire et à la demande. Les deux exigent toujours **100 %**, mais la barrière complète
-ne tourne pas à chaque push — donc `make check`, qui la lance en local, est ce qu'il faut
-exécuter avant de pousser.
-
 Le fuzzing (`make fuzz`) exécute huit cibles en nightly avec AddressSanitizer : `uptime_parse`,
 `authorized_key`, `config_toml`, `client_config`, `unit_name`, `package_id`, `container_ref`
 et `container_allowlist`. `cargo-deny`

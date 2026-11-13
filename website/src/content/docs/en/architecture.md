@@ -48,11 +48,6 @@ decisions live in pure, tested modules. The systemd and PackageKit adapters are 
 in-process mock buses, the Docker adapter by a mock HTTP server on a UNIX socket, and the SSH
 transport by an in-process `russh` client/server pair.
 
-The gate is split in CI: a pull request mutates only the lines it changes (`--in-diff`), and
-the whole workspace runs in **8 shards** on a weekly schedule and on manual dispatch. Both
-still require **100%**, but the full gate is not run on every push — so `make check`, which
-runs it locally, is what to run before pushing.
-
 Fuzzing (`make fuzz`) runs eight targets on nightly with AddressSanitizer: `uptime_parse`,
 `authorized_key`, `config_toml`, `client_config`, `unit_name`, `package_id`, `container_ref`
 and `container_allowlist`. `cargo-deny`
