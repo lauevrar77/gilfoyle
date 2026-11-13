@@ -90,6 +90,12 @@ both. A release always ships the site: the script runs `npm ci && npm run build`
 and includes `website/dist/` in the tarball, and it fails the release if the site cannot be
 built. Never cut a release without the compiled website.
 
+`make package-client-macos` cross-compiles the **client** for macOS from Linux — the same
+`gilfoyle` binary, since the node is Linux-only — using `zig` and `cargo-zigbuild`, one
+tarball per architecture. It needs no Apple SDK because `chrono` is built without its `clock`
+feature; do not re-enable it. A release publishes the Linux node tarball and the macOS client
+tarballs together (`.github/workflows/release.yml`).
+
 ## Adding a tool
 
 1. Model the result in `gilfoyle-core` and add a method to the driving port.

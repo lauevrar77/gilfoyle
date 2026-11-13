@@ -147,6 +147,33 @@ Run it (this is what the AI client launches):
 gilfoyle client --config ~/.config/gilfoyle/client.toml   # or GILFOYLE_CLIENT_CONFIG=...
 ```
 
+### macOS client
+
+The client half is not tied to Linux — only the node is (systemd, PackageKit and the Docker
+socket do not exist on macOS). Releases ship the client cross-compiled for macOS, one tarball
+per architecture (Apple Silicon and Intel):
+
+```sh
+tar -xzf gilfoyle-<version>-aarch64-apple-darwin.tar.gz   # x86_64-... on Intel
+sudo install -m 0755 gilfoyle /usr/local/bin/gilfoyle
+gilfoyle client --config ~/.config/gilfoyle/client.toml
+```
+
+`gilfoyle ssh keygen` works there too — that is how you generate the key whose public half
+goes into a node's `[[keys]]`. Only running `gilfoyle` with no subcommand (the node) needs
+Linux.
+
+To cross-compile it yourself from Linux:
+
+```sh
+make client-macos-setup      # zig, cargo-zigbuild and the two Rust Apple targets
+make package-client-macos    # dist/gilfoyle-<version>-{aarch64,x86_64}-apple-darwin.tar.gz
+```
+
+No Apple SDK is required: `zig` provides the Mach-O linker and the libSystem stubs, and
+`gilfoyle` builds `chrono` without its `clock` feature, so the link never asks for the
+CoreFoundation framework.
+
 ## Updating
 
 ### From a previous SSH build (same config schema)

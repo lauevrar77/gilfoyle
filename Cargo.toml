@@ -36,7 +36,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "fmt"]
 clap = { version = "4", features = ["derive"] }
 toml = "0.8"
 async-trait = "0.1"
-chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# Deliberately no `clock`: nothing here calls `Utc::now()`, only formatting from a stored
+# timestamp. Leaving it off keeps `iana-time-zone`/`core-foundation-sys` out of the tree, so
+# the macOS client cross-compiles on Linux without the Apple SDK (see docs/INSTALL.md).
+chrono = { version = "0.4", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 zbus_systemd = { version = "0.26201", default-features = false, features = ["systemd1", "zbus-async-tokio"] }
 russh = { version = "0.65", default-features = false, features = ["ring"] }

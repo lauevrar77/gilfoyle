@@ -71,3 +71,13 @@ Build an artifact with:
 ```sh
 make package-release
 ```
+
+They also ship the **client for macOS**, cross-compiled from Linux on the same runner with
+`zig` — one tarball per architecture. No Apple SDK is needed: `zig` brings the Mach-O linker
+and the libSystem stubs, and `chrono` is built without its `clock` feature, so the link never
+asks for the CoreFoundation framework.
+
+```sh
+make client-macos-setup      # once: zig, cargo-zigbuild and the Rust Apple targets
+make package-client-macos    # dist/gilfoyle-<version>-{aarch64,x86_64}-apple-darwin.tar.gz
+```

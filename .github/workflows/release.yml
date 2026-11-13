@@ -13,6 +13,7 @@ env:
   CARGO_INCREMENTAL: "0"
   RUST_TOOLCHAIN: "1.89.0"
   TARGET: x86_64-unknown-linux-gnu
+  ZIG_VERSION: "0.17.1"
 
 jobs:
   release:
@@ -27,6 +28,21 @@ jobs:
           sh /tmp/rustup.sh -y --no-modify-path --profile minimal \
             --default-toolchain "$RUST_TOOLCHAIN"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Add the Rust targets for the macOS client
+        run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - name: Install zig (the macOS client is cross-compiled from this Linux runner)
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz" \
+            | tar -xJ -C "$RUNNER_TEMP"
+          ZIG_BIN="$(dirname "$(find "$RUNNER_TEMP" -maxdepth 3 -type f -name zig -perm -u+x | head -1)")"
+          [ -n "$ZIG_BIN" ] || { echo "!! zig was not extracted" >&2; exit 1; }
+          echo "$ZIG_BIN" >> "$GITHUB_PATH"
+
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --locked
 
       - name: Set up Node (the release ships the compiled website)
         uses: actions/setup-node@v5
@@ -61,16 +77,17 @@ jobs:
       - name: Build and package (binary + website, into dist/)
         run: ./scripts/package-release.sh
 
+      - name: Cross-compile and package the macOS client (into dist/)
+        run: ./scripts/package-client-macos.sh
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          PKG="gilfoyle-${VERSION}-${TARGET}"
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --generate-notes \
             --verify-tag \
-            "dist/${PKG}.tar.gz" "dist/${PKG}.tar.gz.sha256"
+            dist/*.tar.gz dist/*.tar.gz.sha256

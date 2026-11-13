@@ -100,6 +100,9 @@ graph.
 
 - Nothing beyond the `gilfoyle` binary: the client speaks SSH with its own pinned host-key
   fingerprints. A C crypto backend (`ring`) is linked in.
+- The client runs on macOS (Apple Silicon and Intel) as well as Linux; the node is
+  Linux-only. Releases ship the macOS client cross-compiled from Linux — no Apple SDK is
+  needed — see *Releases* and `docs/INSTALL.md`.
 
 ## Quickstart (node)
 
@@ -443,6 +446,14 @@ cannot — a release always ships the site. Pushing a tag (`git tag vX.Y.Z && gi
 runs the release workflow, which builds the binary and the site, checks that the tag matches
 the `Cargo.toml` version, and publishes the `.tar.gz` and its `.sha256` as release assets.
 The client uses the same binary (`gilfoyle client`).
+
+Releases also ship the **client for macOS**, cross-compiled on the Linux runner with `zig`
+(one tarball per architecture, no Apple SDK needed):
+
+```sh
+make client-macos-setup         # once: zig, cargo-zigbuild, the Rust Apple targets
+make package-client-macos       # dist/gilfoyle-<version>-{aarch64,x86_64}-apple-darwin.tar.gz
+```
 
 ## Continuous integration
 
