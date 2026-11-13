@@ -40,7 +40,8 @@ AI agent ──MCP(stdio)──▶ gilfoyle client ──SSH──▶ node @ hos
 
 **Client**
 
-- Nothing beyond the `gilfoyle` binary.
+- Nothing beyond the `gilfoyle` binary. The client runs on macOS (Apple Silicon and Intel)
+  too — only the node is Linux-only — and releases ship it cross-compiled.
 
 ## Where to go next
 

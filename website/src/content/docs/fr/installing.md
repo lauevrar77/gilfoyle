@@ -72,3 +72,13 @@ et les fichiers de déploiement. Construis un artefact avec :
 ```sh
 make package-release
 ```
+
+Elles fournissent aussi le **client pour macOS**, cross-compilé depuis Linux sur le même
+runner avec `zig` — un tarball par architecture. Aucun SDK Apple n'est nécessaire : `zig`
+apporte l'éditeur de liens Mach-O et les stubs libSystem, et `chrono` est compilé sans son
+feature `clock`, donc l'édition de liens ne réclame jamais le framework CoreFoundation.
+
+```sh
+make client-macos-setup      # une fois : zig, cargo-zigbuild et les cibles Rust Apple
+make package-client-macos    # dist/gilfoyle-<version>-{aarch64,x86_64}-apple-darwin.tar.gz
+```

@@ -41,7 +41,8 @@ agent IA ──MCP(stdio)──▶ client gilfoyle ──SSH──▶ nœud @ h�
 
 **Client**
 
-- Rien de plus que le binaire `gilfoyle`.
+- Rien de plus que le binaire `gilfoyle`. Le client tourne aussi sur macOS (Apple Silicon et
+  Intel) — seul le nœud est Linux uniquement — et les versions le livrent cross-compilé.
 
 ## Où aller ensuite
 
