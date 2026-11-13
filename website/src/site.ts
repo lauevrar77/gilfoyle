@@ -6,8 +6,8 @@ export const SITE = {
   /** Canonical origin. Must match `site` in astro.config.mjs. */
   url: "https://gilfoyle.evrard.online",
   name: "Gilfoyle",
-  repo: "https://forge.evrard.online:3000/laurent/gilfoyle",
-  releases: "https://forge.evrard.online:3000/laurent/gilfoyle/releases",
+  repo: "https://github.com/lauevrar77/gilfoyle",
+  releases: "https://github.com/lauevrar77/gilfoyle/releases",
   mcp: "https://modelcontextprotocol.io",
 } as const;
 

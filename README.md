@@ -1,5 +1,7 @@
 # Gilfoyle
 
+[![CI](https://github.com/lauevrar77/gilfoyle/actions/workflows/ci.yml/badge.svg)](https://github.com/lauevrar77/gilfoyle/actions/workflows/ci.yml)
+
 A secure [MCP](https://modelcontextprotocol.io) server, written in Rust, that exposes Linux
 administration tools to an AI agent over **SSH**: reads are open, and the only mutations are
 starting and stopping allowlisted systemd units and Docker containers, and refreshing or
@@ -421,7 +423,7 @@ over `AF_UNIX`, which the unit already allows.
 Tagged releases ship a **dynamically linked GNU** binary, a checksum and the deployment
 files:
 
-<https://forge.evrard.online:3000/laurent/gilfoyle/releases>
+<https://github.com/lauevrar77/gilfoyle/releases>
 
 Build a release artifact with:
 
@@ -432,9 +434,23 @@ make package-release            # writes dist/gilfoyle-<version>-x86_64-unknown-
 The tarball holds the `gilfoyle` binary, `gilfoyle.service`, the example polkit rules (units
 and packages), `README.md`, `INSTALL.md`, and the **compiled website** under `website/`. The
 release script builds the site (`npm ci && npm run build` in `website/`) and fails if it
-cannot — a release always ships the site. Tag the commit (`git tag vX.Y.Z`), create the
-release, and attach the `.tar.gz` and its `.sha256`. The client uses the same binary
-(`gilfoyle client`).
+cannot — a release always ships the site. Pushing a tag (`git tag vX.Y.Z && git push origin vX.Y.Z`)
+runs the release workflow, which builds the binary and the site, checks that the tag matches
+the `Cargo.toml` version, and publishes the `.tar.gz` and its `.sha256` as release assets.
+The client uses the same binary (`gilfoyle client`).
+
+## Continuous integration
+
+GitHub Actions (`.github/workflows/`):
+
+- **`ci.yml`** — on every push and pull request: `cargo fmt --check`, `clippy -D warnings`,
+  `cargo test --workspace`, `cargo deny check`, `cargo audit`, and the **100% mutation
+  gate** (`cargo-mutants`). The mutation job runs in parallel with the fast checks.
+- **`release.yml`** — on a `v*` tag: builds and packages the release (binary, deployment
+  files and the compiled website) and publishes it with the `.sha256` checksum.
+
+Fuzzing is deliberately **not** in CI (it needs nightly and ASan); run it locally with
+`make fuzz`.
 
 ## License
 

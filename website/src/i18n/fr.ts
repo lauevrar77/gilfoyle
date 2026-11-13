@@ -485,8 +485,8 @@ export const fr: Dict = {
     project: "projet",
     resources: "ressources",
     projectLinks: [
-      { href: "https://forge.evrard.online:3000/laurent/gilfoyle", label: "code source" },
-      { href: "https://forge.evrard.online:3000/laurent/gilfoyle/releases", label: "versions" },
+      { href: "https://github.com/lauevrar77/gilfoyle", label: "code source" },
+      { href: "https://github.com/lauevrar77/gilfoyle/releases", label: "versions" },
       { href: "https://modelcontextprotocol.io", label: "model context protocol" },
     ],
     resourceLinks: [

@@ -483,8 +483,8 @@ export const en = {
     project: "project",
     resources: "resources",
     projectLinks: [
-      { href: "https://forge.evrard.online:3000/laurent/gilfoyle", label: "source" },
-      { href: "https://forge.evrard.online:3000/laurent/gilfoyle/releases", label: "releases" },
+      { href: "https://github.com/lauevrar77/gilfoyle", label: "source" },
+      { href: "https://github.com/lauevrar77/gilfoyle/releases", label: "releases" },
       { href: "https://modelcontextprotocol.io", label: "model context protocol" },
     ],
     resourceLinks: [
