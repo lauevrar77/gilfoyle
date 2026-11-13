@@ -62,6 +62,11 @@ The systemd and PackageKit adapters are covered by in-process mock buses, the Do
 by an in-process mock HTTP server on a UNIX socket, and the SSH transport by an in-process
 `russh` client/server pair.
 
+CI's per-PR gate is **incremental** (`cargo mutants --in-diff` over the changed lines), and
+the **full** gate runs in 8 shards only on a weekly schedule and on manual dispatch. The
+full gate is therefore *not* run on every push: run `make check` locally before pushing, or
+a test gap outside the diff will slip through until the next weekly run.
+
 ## Website — always keep it in sync
 
 `website/` is a self-contained, bilingual Astro + Tailwind project that mirrors the docs
