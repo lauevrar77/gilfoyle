@@ -61,7 +61,11 @@ jobs:
         run: cargo test --workspace
 
       - name: Install cargo-deny and cargo-audit
-        run: cargo install --locked cargo-deny cargo-audit
+        # The cargo cache keeps ~/.cargo/bin, so a warm cache already has these
+        # binaries and `cargo install` refuses to clobber them without --force.
+        run: |
+          command -v cargo-deny >/dev/null || cargo install --locked cargo-deny
+          command -v cargo-audit >/dev/null || cargo install --locked cargo-audit
 
       - name: Dependencies (licenses, bans, sources)
         run: cargo deny check
@@ -103,7 +107,8 @@ jobs:
             cargo-check-${{ runner.os }}-
 
       - name: Install cargo-mutants
-        run: cargo install --locked cargo-mutants
+        # Kept in the cargo cache; skip the install when it is already present.
+        run: command -v cargo-mutants >/dev/null || cargo install --locked cargo-mutants
 
       - name: Mutation gate (changed lines only)
         env:
@@ -154,7 +159,8 @@ jobs:
             cargo-check-${{ runner.os }}-
 
       - name: Install cargo-mutants
-        run: cargo install --locked cargo-mutants
+        # Kept in the cargo cache; skip the install when it is already present.
+        run: command -v cargo-mutants >/dev/null || cargo install --locked cargo-mutants
 
       - name: Mutation gate (100% required)
         env:
