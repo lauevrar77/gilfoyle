@@ -32,7 +32,7 @@ agent IA ──MCP(stdio)──▶ client gilfoyle ──SSH──▶ nœud @ h�
 **Nœud**
 
 - Un hôte Linux avec systemd et un bus système D-Bus accessible.
-- `/proc/uptime` pour l'outil d'uptime.
+- `/proc/uptime`, `/proc/loadavg`, `/proc/meminfo` et `/proc/mounts` pour les outils hôte.
 - polkit (`polkitd`) — uniquement pour autoriser `start_unit` et `stop_unit`.
 - PackageKit et un backend (APT, DNF) — uniquement pour les outils paquets.
 - Docker — uniquement pour les outils conteneurs. En son absence, ces outils renvoient une

@@ -21,7 +21,7 @@ export const en = {
     skip: "Skip to content",
   },
   hero: {
-    status: "early · systemd · docker · packages",
+    status: "early · host · systemd · docker · packages",
     prompt: "gilfoyle@host:~$",
     typed: "whoami",
     name: "gilfoyle",
@@ -75,12 +75,13 @@ export const en = {
     doTitle: "what I do",
     refuseTitle: "what I refuse",
     do: [
-      { label: "read", note: "uptime, units, containers, packages. Any key can read." },
+      { label: "read", note: "uptime, load, memory, disk, units, containers, packages." },
       {
         label: "start / stop / restart",
         note: "only the units and containers you allowlisted",
       },
       { label: "refresh / upgrade", note: "packages, if you allow it. Trusted ones only." },
+      { label: "path metadata", note: "only the paths you list in [paths] allow. Never contents." },
       { label: "aggregate", note: "one MCP surface across many nodes" },
     ],
     refuse: [
@@ -91,6 +92,7 @@ export const en = {
       { label: "root", note: "I run unprivileged and never escalate" },
       { label: "install", note: "no such operation" },
       { label: "remove", note: "no such operation" },
+      { label: "read a file off the allowlist", note: "no such path" },
     ],
   },
   guarantees: {
@@ -127,6 +129,11 @@ export const en = {
       {
         title: "Changes are default-deny",
         body: "The allowlists are empty by default: [systemd] manage_units, [docker] manage_containers, [packagekit] allow. Nothing is started, stopped or upgraded until you list it.",
+        tag: "config",
+      },
+      {
+        title: "Reads stay bounded",
+        body: "A read is open only when it is bounded, named and non-disclosing. A path is not: path_status acts only on [paths] allow (empty by default), returns metadata and never contents.",
         tag: "config",
       },
       {
@@ -189,7 +196,7 @@ export const en = {
       { attack: "log in with a password", by: "public keys only", result: "refused", kind: "runtime" },
       { attack: "mutate with a read-only key", by: "per-key tool grant", result: "refused", kind: "runtime" },
       { attack: "inject a command in an argument", by: "no shell to interpret it", result: "nothing runs", kind: "structural" },
-      { attack: "read an arbitrary file", by: "no tool takes a path", result: "no such tool", kind: "structural" },
+      { attack: "read a file that is not allowlisted", by: "[paths] allow", result: "refused", kind: "runtime" },
       { attack: "spawn a process", by: "lint on std::process::Command", result: "build fails", kind: "structural" },
       { attack: "install or remove a package", by: "closed enum", result: "no such operation", kind: "structural" },
       { attack: "create or remove a container", by: "closed set of requests", result: "no such request", kind: "structural" },
@@ -225,7 +232,7 @@ export const en = {
           "ProtectHome",
           "PrivateTmp",
           "PrivateDevices",
-          "ReadOnlyPaths=/proc/uptime",
+          "ReadOnlyPaths=/proc/{uptime,loadavg,meminfo,mounts}",
         ],
       },
       {
@@ -262,7 +269,7 @@ export const en = {
       },
     ],
     footnote:
-      "/proc/uptime is the only host file I read. systemd and PackageKit go through the system bus and polkit decides. Docker goes through its socket, with no polkit.",
+      "I read a few /proc files, the mount table, one read-only statvfs call, and the metadata of the paths you declare. systemd and PackageKit go through the system bus and polkit decides. Docker goes through its socket, with no polkit.",
     docker: {
       title: "Docker has no polkit",
       body: "The Docker socket is as good as root: a privileged container can mount the host. Put a socket proxy in front of it that only allows the endpoints I use, instead of adding my user to the docker group. manage_containers is empty by default, and the action runs on the resolved container id, so a rename can't redirect it.",
@@ -284,7 +291,7 @@ export const en = {
       },
       {
         title: "Fuzzing, under ASan",
-        body: "Eight targets cover the parsers: uptime, authorized keys, config, client config, unit names, package ids, container refs and the container allowlist. They run on nightly with AddressSanitizer.",
+        body: "Twelve targets cover the parsers: uptime, load average, memory, mounts, authorized keys, config, client config, unit names, package ids, container refs, the container allowlist and the path allowlist. They run on nightly with AddressSanitizer.",
       },
       {
         title: "Supply chain",
@@ -315,12 +322,36 @@ export const en = {
     groups: [
       {
         name: "Host",
-        note: "/proc/uptime",
+        note: "/proc, and a read-only statvfs call",
         items: [
           {
             name: "get_uptime",
             args: "—",
             effect: "host uptime, since kernel boot",
+            kind: "read",
+          },
+          {
+            name: "get_load_and_memory",
+            args: "—",
+            effect: "load average and memory usage",
+            kind: "read",
+          },
+          {
+            name: "get_disk_usage",
+            args: "—",
+            effect: "usage of the configured mount points",
+            kind: "read",
+          },
+        ],
+      },
+      {
+        name: "Paths",
+        note: "allowlisted",
+        items: [
+          {
+            name: "path_status",
+            args: "path",
+            effect: "metadata of one allowlisted path (never contents)",
             kind: "read",
           },
         ],
@@ -451,13 +482,15 @@ export const en = {
     index: "09",
     kicker: "architecture",
     title: "Dependencies point inward.",
-    lead: "Eight crates. The core defines the ports, the adapters implement them, and the core never imports an adapter.",
+    lead: "Ten crates. The core defines the ports, the adapters implement them, and the core never imports an adapter.",
     crate: "crate",
     role: "role",
     io: "I/O",
     crates: [
       { name: "gilfoyle-core", role: "domain types, ports, use cases", io: "none" },
       { name: "gilfoyle-system", role: "driven adapter (host uptime)", io: "read-only" },
+      { name: "gilfoyle-host", role: "driven adapter (load, memory, disk usage)", io: "read-only" },
+      { name: "gilfoyle-path", role: "driven adapter (path metadata)", io: "read-only" },
       { name: "gilfoyle-systemd", role: "driven adapter (systemd over D-Bus)", io: "system bus" },
       { name: "gilfoyle-packagekit", role: "driven adapter (PackageKit over D-Bus)", io: "system bus" },
       { name: "gilfoyle-docker", role: "driven adapter (Docker over its UNIX socket)", io: "socket" },

@@ -5,13 +5,15 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use gilfoyle_core::{
-    AppError, Container, ContainerActionOutcome, ContainerFilter, ContainerStatus, DockerAdmin,
-    JobResult, Package, PackageAdmin, PackageFilter, PackageList, RefreshReport, SystemAdmin,
-    SystemError, SystemService, SystemdAdmin, SystemdError, Unit, UnitActionOutcome, UnitFilter,
-    UnitName, UnitStatus, UnitTimestamps, UpdateFilter, UpdateList, UpgradePlan, UpgradeReport,
-    Uptime, UptimeSource,
+    AppError, Container, ContainerActionOutcome, ContainerFilter, ContainerStatus, DiskAdmin,
+    DockerAdmin, FilesystemUsage, HostAdmin, JobResult, LoadAndMemory, LoadAverage, Memory,
+    Package, PackageAdmin, PackageFilter, PackageList, PathAdmin, PathStatus, RefreshReport,
+    SystemAdmin, SystemError, SystemService, SystemdAdmin, SystemdError, Unit, UnitActionOutcome,
+    UnitFilter, UnitName, UnitStatus, UnitTimestamps, UpdateFilter, UpdateList, UpgradePlan,
+    UpgradeReport, Uptime, UptimeSource,
 };
 use gilfoyle_server::GilfoyleServer;
+use gilfoyle_server::config::ALLOWLISTED_READS;
 use rmcp::RoleClient;
 use rmcp::handler::client::ClientHandler;
 use rmcp::model::CallToolRequestParams;
@@ -207,14 +209,61 @@ impl DockerAdmin for FakeDocker {
     }
 }
 
+/// A stand-in for the host metrics driving port.
+#[derive(Clone)]
+struct FakeHost;
+
+impl HostAdmin for FakeHost {
+    fn load_and_memory(&self) -> Result<LoadAndMemory, AppError> {
+        Ok(LoadAndMemory {
+            load: LoadAverage::new(0.5, 0.25, 0.1, 1, 200).unwrap(),
+            memory: Memory::new(1024, 256, 512, 0, 0),
+        })
+    }
+}
+
+/// A stand-in for the disk usage driving port.
+#[derive(Clone)]
+struct FakeDisk;
+
+impl DiskAdmin for FakeDisk {
+    fn disk_usage(&self) -> Result<Vec<FilesystemUsage>, AppError> {
+        Ok(vec![FilesystemUsage::measured(
+            "/",
+            "/dev/vda1",
+            "ext4",
+            1000,
+            400,
+            100,
+            50,
+        )])
+    }
+}
+
+/// A stand-in for the path metadata driving port.
+#[derive(Clone)]
+struct FakePaths;
+
+impl PathAdmin for FakePaths {
+    fn path_status(&self, path: &str) -> Result<PathStatus, AppError> {
+        Ok(PathStatus::missing(path))
+    }
+}
+
 async fn serve(
     systemd: FakeSystemd,
     docker: FakeDocker,
     enabled: Option<BTreeSet<String>>,
 ) -> RunningService<RoleClient, TestClient> {
     let admin: Arc<dyn SystemAdmin> = Arc::new(SystemService::new(FixedSource(3661.0)));
+    let host: Arc<dyn HostAdmin> = Arc::new(FakeHost);
+    let disk: Arc<dyn DiskAdmin> = Arc::new(FakeDisk);
+    let paths: Arc<dyn PathAdmin> = Arc::new(FakePaths);
     let handler = GilfoyleServer::new(
         admin,
+        host,
+        disk,
+        paths,
         Arc::new(systemd),
         Arc::new(FakePackage),
         Arc::new(docker),
@@ -256,11 +305,14 @@ async fn lists_every_tool_and_serves_uptime() {
         tool_names(&client).await,
         vec![
             "container_status".to_string(),
+            "get_disk_usage".to_string(),
+            "get_load_and_memory".to_string(),
             "get_uptime".to_string(),
             "list_containers".to_string(),
             "list_packages".to_string(),
             "list_units".to_string(),
             "list_updates".to_string(),
+            "path_status".to_string(),
             "preview_upgrade".to_string(),
             "refresh_package_cache".to_string(),
             "restart_container".to_string(),
@@ -279,6 +331,98 @@ async fn lists_every_tool_and_serves_uptime() {
         .await
         .unwrap();
     assert_eq!(result.structured_content.unwrap()["uptime_seconds"], 3661.0);
+}
+
+#[tokio::test]
+async fn serves_host_metrics_disk_and_path_metadata() {
+    let client = serve(FakeSystemd::default(), FakeDocker::default(), None).await;
+
+    let host = client
+        .peer()
+        .call_tool(call("get_load_and_memory", json!({})))
+        .await
+        .unwrap()
+        .structured_content
+        .unwrap();
+    assert_eq!(host["load"]["runnable"], 1);
+    assert_eq!(host["memory"]["total_kib"], 1024);
+
+    let disk = client
+        .peer()
+        .call_tool(call("get_disk_usage", json!({})))
+        .await
+        .unwrap()
+        .structured_content
+        .unwrap();
+    assert_eq!(disk["filesystems"][0]["mount"], "/");
+    assert_eq!(disk["filesystems"][0]["fstype"], "ext4");
+
+    let path = client
+        .peer()
+        .call_tool(call("path_status", json!({ "path": "/var/lib/x" })))
+        .await
+        .unwrap()
+        .structured_content
+        .unwrap();
+    assert_eq!(path["exists"], false);
+}
+
+/// Every tool must be classified as an *open read*, an *allowlisted read* or a
+/// *mutation*. If a tool is added without updating this test, it fails: the
+/// classification cannot drift silently (see `docs/adr/0012`).
+#[tokio::test]
+async fn every_tool_is_classified() {
+    let client = serve(FakeSystemd::default(), FakeDocker::default(), None).await;
+    let tools = client.peer().list_tools(None).await.unwrap().tools;
+
+    let open_reads = [
+        "get_uptime",
+        "get_load_and_memory",
+        "get_disk_usage",
+        "list_units",
+        "unit_status",
+        "list_packages",
+        "list_updates",
+        "preview_upgrade",
+        "list_containers",
+        "container_status",
+    ];
+    let mutations = [
+        "start_unit",
+        "stop_unit",
+        "refresh_package_cache",
+        "upgrade_packages",
+        "start_container",
+        "stop_container",
+        "restart_container",
+    ];
+
+    assert_eq!(
+        tools.len(),
+        open_reads.len() + ALLOWLISTED_READS.len() + mutations.len(),
+        "a tool is missing from the classification"
+    );
+
+    for tool in &tools {
+        let name = tool.name.to_string();
+        let read_only = tool
+            .annotations
+            .as_ref()
+            .and_then(|annotations| annotations.read_only_hint)
+            .unwrap_or(false);
+        let open = open_reads.contains(&name.as_str());
+        let allowlisted = ALLOWLISTED_READS.contains(&name.as_str());
+        let mutation = mutations.contains(&name.as_str());
+        assert!(
+            open || allowlisted || mutation,
+            "tool `{name}` is not classified as an open read, an allowlisted read or a mutation"
+        );
+        assert_eq!(
+            read_only,
+            open || allowlisted,
+            "tool `{name}` has the wrong read-only classification"
+        );
+    }
 }
 
 #[tokio::test]

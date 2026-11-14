@@ -32,7 +32,7 @@ AI agent ──MCP(stdio)──▶ gilfoyle client ──SSH──▶ node @ hos
 **Node**
 
 - A Linux host with systemd and an accessible system D-Bus.
-- `/proc/uptime` for the uptime tool.
+- `/proc/uptime`, `/proc/loadavg`, `/proc/meminfo` and `/proc/mounts` for the host tools.
 - polkit (`polkitd`) — only to authorise `start_unit` and `stop_unit`.
 - PackageKit and a backend (APT, DNF) — only for the package tools.
 - Docker — only for the container tools. When absent, the container tools report a clear

@@ -16,6 +16,8 @@ path = "src/main.rs"
 [dependencies]
 gilfoyle-core = { workspace = true }
 gilfoyle-system = { workspace = true }
+gilfoyle-host = { workspace = true }
+gilfoyle-path = { workspace = true }
 gilfoyle-systemd = { workspace = true }
 gilfoyle-packagekit = { workspace = true }
 gilfoyle-docker = { workspace = true }

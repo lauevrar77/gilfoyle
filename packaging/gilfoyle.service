@@ -37,8 +37,9 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 
-# The only host file gilfoyle reads.
-ReadOnlyPaths=/proc/uptime
+# The host files gilfoyle reads (paths declared in [paths] allow are read-only anyway under
+# ProtectSystem=strict).
+ReadOnlyPaths=/proc/uptime /proc/loadavg /proc/meminfo /proc/mounts
 
 # systemd is reached over the system bus (AF_UNIX, already allowed above).
 # Install the generated polkit rule to authorise start/stop:

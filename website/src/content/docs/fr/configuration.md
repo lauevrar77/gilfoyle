@@ -22,6 +22,7 @@ log_level = "info"                        # filtre tracing, journaux JSON sur st
 [tools]
 enabled = [
   "get_uptime",
+  "get_load_and_memory", "get_disk_usage", "path_status",
   "list_units", "unit_status", "start_unit", "stop_unit",
   "list_packages", "list_updates", "preview_upgrade",
   "refresh_package_cache", "upgrade_packages",
@@ -31,6 +32,17 @@ enabled = [
 [systemd]
 # Unités que l'on peut démarrer ou arrêter. Vide (par défaut) signifie aucune.
 manage_units = ["nginx.service", "myapp.service"]
+
+[host]
+# Points de montage dont on rapporte l'occupation (défaut ["/"]).
+disks = ["/", "/var"]
+
+[paths]
+# Chemins dont les métadonnées sont lisibles. Vide (par défaut) signifie aucun. Une
+# entrée est un chemin absolu (correspondance exacte) ou une expression régulière
+# `re:` ancrée au chemin entier. Seules les métadonnées sont renvoyées, jamais le
+# contenu.
+allow = ["/var/lib/myapp/last-run", "re:^/var/backups/[^/]+\\.dump$"]
 
 [packagekit]
 # Opérations mutantes autorisées sur les paquets. Vide signifie aucune.

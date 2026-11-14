@@ -845,6 +845,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gilfoyle-host"
+version = "0.5.0"
+dependencies = [
+ "gilfoyle-core",
+ "rustix",
+ "tempfile",
+]
+
+[[package]]
 name = "gilfoyle-packagekit"
 version = "0.5.0"
 dependencies = [
@@ -856,6 +865,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gilfoyle-path"
+version = "0.5.0"
+dependencies = [
+ "chrono",
+ "gilfoyle-core",
+ "tempfile",
+]
+
+[[package]]
 name = "gilfoyle-server"
 version = "0.5.0"
 dependencies = [
@@ -864,7 +882,9 @@ dependencies = [
  "gilfoyle-client",
  "gilfoyle-core",
  "gilfoyle-docker",
+ "gilfoyle-host",
  "gilfoyle-packagekit",
+ "gilfoyle-path",
  "gilfoyle-ssh",
  "gilfoyle-system",
  "gilfoyle-systemd",

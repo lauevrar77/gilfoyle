@@ -12,9 +12,33 @@ This is the whole vocabulary. If a tool is not on this list, it does not exist.
 | Tool | Arguments | Effect |
 |---|---|---|
 | `get_uptime` | — | host uptime from `/proc/uptime` (since kernel boot) |
+| `get_load_and_memory` | — | load average and memory usage (read-only) |
+| `get_disk_usage` | — | usage of the mount points in `[host] disks` (read-only) |
 
 ```json
 { "uptime_seconds": 1048545.67, "uptime_human": "12d 3h 15m 45s" }
+```
+
+`get_disk_usage` reads the sizes with the read-only `statvfs` syscall. A configured path
+that is not currently in `/proc/mounts` is reported as `mounted: false`, never as the
+parent filesystem's usage; network filesystems are reported as unsupported rather than
+probed.
+
+## Paths
+
+| Tool | Arguments | Effect |
+|---|---|---|
+| `path_status` | `path` | metadata of one allowlisted path (never the contents) |
+
+`path` must be listed in `[paths] allow` (empty by default), an absolute path or a `re:`
+pattern anchored to the whole path. This read is **allowlisted** because a path is an
+unbounded namespace. The final path component is not followed, and no directory listing is
+ever returned.
+
+```json
+{ "path": "/var/lib/myapp/last-run", "exists": true, "kind": "file",
+  "size_bytes": 42, "age_seconds": 3120, "modified": "2026-11-14T02:00:00Z",
+  "mode": 420, "uid": 998, "gid": 998, "symlink_target": null }
 ```
 
 ## systemd

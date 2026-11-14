@@ -12,9 +12,33 @@ Voici tout le vocabulaire. Si un outil n'est pas dans cette liste, il n'existe p
 | Outil | Arguments | Effet |
 |---|---|---|
 | `get_uptime` | — | uptime de l'hôte depuis `/proc/uptime` (depuis le démarrage du noyau) |
+| `get_load_and_memory` | — | charge moyenne et mémoire (lecture) |
+| `get_disk_usage` | — | occupation des points de montage de `[host] disks` (lecture) |
 
 ```json
 { "uptime_seconds": 1048545.67, "uptime_human": "12d 3h 15m 45s" }
+```
+
+`get_disk_usage` lit les tailles via l'appel système `statvfs` en lecture seule. Un chemin
+configuré qui n'est pas actuellement dans `/proc/mounts` est rapporté `mounted: false`,
+jamais comme l'occupation du système de fichiers parent ; les systèmes de fichiers réseau
+sont rapportés comme non pris en charge plutôt que sondés.
+
+## Chemins
+
+| Outil | Arguments | Effet |
+|---|---|---|
+| `path_status` | `path` | métadonnées d'un chemin autorisé (jamais le contenu) |
+
+`path` doit figurer dans `[paths] allow` (vide par défaut), un chemin absolu ou un motif
+`re:` ancré au chemin entier. Cette lecture est **allowlistée** car un chemin est un espace
+non borné. Le dernier composant n'est pas suivi, et aucun listing de répertoire n'est
+renvoyé.
+
+```json
+{ "path": "/var/lib/myapp/last-run", "exists": true, "kind": "file",
+  "size_bytes": 42, "age_seconds": 3120, "modified": "2026-11-14T02:00:00Z",
+  "mode": 420, "uid": 998, "gid": 998, "symlink_target": null }
 ```
 
 ## systemd

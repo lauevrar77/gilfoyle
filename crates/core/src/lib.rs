@@ -9,20 +9,30 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 mod application;
+mod disk;
 mod docker;
 mod domain;
 mod error;
+mod host;
 mod packagekit;
+mod path;
 mod ports;
 mod systemd;
 
-pub use application::{DockerService, PackageService, SystemService, SystemdService};
+pub use application::{
+    DiskService, DockerService, HostService, PackageService, PathService, SystemService,
+    SystemdService,
+};
+pub use disk::{DiskUsage, FilesystemUsage, MountPoint, MountPoints};
 pub use docker::{
     Container, ContainerAction, ContainerActionOutcome, ContainerAllowlist, ContainerFilter,
     ContainerIdentity, ContainerList, ContainerRef, ContainerState, ContainerStatus,
 };
 pub use domain::{Uptime, UptimeReport};
-pub use error::{AppError, DockerError, DomainError, SystemError, SystemdError};
+pub use error::{
+    AppError, DiskError, DockerError, DomainError, PathError, SystemError, SystemdError,
+};
+pub use host::{LoadAndMemory, LoadAverage, Memory};
 pub use packagekit::{
     AffectedPackage, Collector, Package, PackageAllowlist, PackageError, PackageEvent,
     PackageFilter, PackageId, PackageList, PackageOperation, PlannedAction, PlannedPackage,
@@ -34,8 +44,10 @@ pub use packagekit::{
     error_code as pk_error, exit as pk_exit, filter as pk_filter, flag as pk_flag, info as pk_info,
     restart as pk_restart,
 };
+pub use path::{PathAllowlist, PathKind, PathRef, PathStatus};
 pub use ports::{
-    ContainerCatalog, ContainerControl, DockerAdmin, PackageAdmin, PackageManager, ServiceCatalog,
+    ContainerCatalog, ContainerControl, DiskAdmin, DiskSource, DockerAdmin, HostAdmin, LoadSource,
+    MemorySource, PackageAdmin, PackageManager, PathAdmin, PathSource, ServiceCatalog,
     ServiceControl, SystemAdmin, SystemdAdmin, UptimeSource,
 };
 pub use systemd::{

@@ -8,11 +8,13 @@ operator has allowlisted.
 
 ## Architecture: dependencies point inward
 
-Eight crates, and the dependency graph is the enforcement.
+Ten crates, and the dependency graph is the enforcement.
 
 - `gilfoyle-core` — pure. Domain types, ports (traits), use cases. No I/O, no async runtime,
   no `rmcp`, no `russh`, no `zbus`.
 - `gilfoyle-system` — driven adapter for the host uptime (`/proc/uptime`).
+- `gilfoyle-host` — driven adapter for host metrics (load, memory, disk usage).
+- `gilfoyle-path` — driven adapter for the metadata of allowlisted paths.
 - `gilfoyle-systemd` — driven adapter for systemd, over in-process D-Bus.
 - `gilfoyle-packagekit` — driven adapter for PackageKit, over in-process D-Bus.
 - `gilfoyle-docker` — driven adapter for Docker, over its UNIX socket (in-process HTTP).
@@ -33,7 +35,8 @@ existing one.
 - Authentication is public key only. A key's tool grant can only narrow `[tools] enabled`.
 - I/O lives only in adapters. systemd and PackageKit are reached over D-Bus in-process, and
   Docker over its UNIX socket (in-process HTTP), never by spawning `systemctl`, `apt` or
-  `docker`.
+  `docker`; disk usage is read with the read-only `statvfs` syscall, and path metadata with
+  `lstat`.
 - `unsafe` is forbidden in our crates, and `clippy::disallowed_methods` rejects
   `std::process::Command` at compile time.
 - Mutations are default-deny: `start_unit` and `stop_unit` only act on units listed in
@@ -42,6 +45,10 @@ existing one.
   `upgrade_packages` only act on the operations in `[packagekit] allow`. polkit is the
   authority behind systemd and PackageKit; Docker's socket is root-equivalent, so it is
   granted narrowly (a socket proxy) and the allowlist is the only in-process guard.
+- Reads are open when they are bounded, named and non-disclosing; a read over an unbounded
+  namespace (a path) is allowlisted. `path_status` acts only on `[paths] allow` (empty by
+  default), returns metadata and never contents. `ALLOWLISTED_READS` plus a test pin the
+  classification so it cannot drift (ADR 0012).
 - Never install or remove a package: the operation vocabulary is a closed enum with no
   install/remove variant, every update carries `ONLY_TRUSTED`, and an upgrade whose plan
   would install or remove a package is refused (unless the operator opts into transitive
@@ -114,7 +121,8 @@ If the tool is a read, add it to `gilfoyle-client`'s read set so it can be fanne
 - `GLOSSARY.md` — the domain vocabulary; keep it free of implementation detail.
 - `docs/adr/` — decisions worth remembering (0005/0006 for the SSH transport and key
   authentication; 0007–0009 for the PackageKit surface and its no-install guarantee; 0010 for
-  the Docker socket, its closed operation set and its regex allowlist).
+  the Docker socket, its closed operation set and its regex allowlist; 0011 for the read-only
+  `statvfs` call; 0012 for the open-or-allowlisted read classification).
 - `website/` — the bilingual marketing + docs site; keep it in sync (see above).
 - `Makefile` — every task; run `make help`.
 - `fuzz/` — an independent workspace; `make fuzz` runs it on nightly with ASan.

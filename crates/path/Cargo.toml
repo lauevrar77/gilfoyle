@@ -1,0 +1,17 @@
+[package]
+name = "gilfoyle-path"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Gilfoyle driven adapter that reads path metadata (read-only)."
+
+[lints]
+workspace = true
+
+[dependencies]
+gilfoyle-core = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

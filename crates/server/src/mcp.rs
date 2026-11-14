@@ -8,9 +8,10 @@ use std::sync::Arc;
 
 use gilfoyle_core::{
     ContainerActionOutcome, ContainerFilter, ContainerList, ContainerState, ContainerStatus,
-    DockerAdmin, PackageAdmin, PackageFilter, PackageList, RefreshReport, Severity, SystemAdmin,
-    SystemdAdmin, UnitActionOutcome, UnitFilter, UnitList, UnitStatus, UnitType, UpdateFilter,
-    UpdateList, UpgradePlan, UpgradeReport, UptimeReport,
+    DiskAdmin, DiskUsage, DockerAdmin, HostAdmin, LoadAndMemory, PackageAdmin, PackageFilter,
+    PackageList, PathAdmin, PathStatus, RefreshReport, Severity, SystemAdmin, SystemdAdmin,
+    UnitActionOutcome, UnitFilter, UnitList, UnitStatus, UnitType, UpdateFilter, UpdateList,
+    UpgradePlan, UpgradeReport, UptimeReport,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
@@ -163,6 +164,13 @@ struct ContainerRefParams {
     container: String,
 }
 
+/// Parameters of `path_status`.
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+struct PathParams {
+    /// The absolute path to inspect; it must be allowed by `[paths] allow`.
+    path: String,
+}
+
 /// Turn a start/stop outcome into a tool result, marking a non-`done` job as an error.
 fn outcome_result(outcome: UnitActionOutcome) -> Result<Json<UnitActionOutcome>, String> {
     if outcome.job_result.is_success() {
@@ -182,6 +190,9 @@ fn outcome_result(outcome: UnitActionOutcome) -> Result<Json<UnitActionOutcome>,
 #[derive(Clone)]
 pub struct GilfoyleServer {
     admin: Arc<dyn SystemAdmin>,
+    host: Arc<dyn HostAdmin>,
+    disk: Arc<dyn DiskAdmin>,
+    paths: Arc<dyn PathAdmin>,
     systemd: Arc<dyn SystemdAdmin>,
     packages: Arc<dyn PackageAdmin>,
     docker: Arc<dyn DockerAdmin>,
@@ -192,8 +203,12 @@ pub struct GilfoyleServer {
 #[tool_router]
 impl GilfoyleServer {
     /// Build a server over the given driving ports and tool allowlist.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         admin: Arc<dyn SystemAdmin>,
+        host: Arc<dyn HostAdmin>,
+        disk: Arc<dyn DiskAdmin>,
+        paths: Arc<dyn PathAdmin>,
         systemd: Arc<dyn SystemdAdmin>,
         packages: Arc<dyn PackageAdmin>,
         docker: Arc<dyn DockerAdmin>,
@@ -201,6 +216,9 @@ impl GilfoyleServer {
     ) -> Self {
         Self {
             admin,
+            host,
+            disk,
+            paths,
             systemd,
             packages,
             docker,
@@ -217,9 +235,49 @@ impl GilfoyleServer {
     }
 
     /// Return the uptime of the host machine.
-    #[tool(description = "Return the uptime of the host machine")]
+    #[tool(
+        description = "Return the uptime of the host machine",
+        annotations(read_only_hint = true)
+    )]
     async fn get_uptime(&self) -> Result<Json<UptimeReport>, String> {
         self.admin.uptime().map(Json).map_err(|e| e.to_string())
+    }
+
+    /// Return the load average and memory usage of the host machine.
+    #[tool(
+        description = "Return the load average and memory usage of the host machine",
+        annotations(read_only_hint = true)
+    )]
+    async fn get_load_and_memory(&self) -> Result<Json<LoadAndMemory>, String> {
+        self.host
+            .load_and_memory()
+            .map(Json)
+            .map_err(|error| error.to_string())
+    }
+
+    /// Return the disk usage of the configured mount points.
+    #[tool(
+        description = "Return the disk usage of the configured mount points ([host] disks)",
+        annotations(read_only_hint = true)
+    )]
+    async fn get_disk_usage(&self) -> Result<Json<DiskUsage>, String> {
+        let filesystems = self.disk.disk_usage().map_err(|error| error.to_string())?;
+        Ok(Json(DiskUsage { filesystems }))
+    }
+
+    /// Return the metadata of one allowed path.
+    #[tool(
+        description = "Return the metadata of one path allowed by [paths] allow (never the contents)",
+        annotations(read_only_hint = true)
+    )]
+    async fn path_status(
+        &self,
+        Parameters(params): Parameters<PathParams>,
+    ) -> Result<Json<PathStatus>, String> {
+        self.paths
+            .path_status(&params.path)
+            .map(Json)
+            .map_err(|error| error.to_string())
     }
 
     /// List systemd units.
@@ -450,7 +508,7 @@ impl GilfoyleServer {
 
 #[tool_handler(
     name = "gilfoyle",
-    instructions = "Administer a Linux host: read the uptime, inspect systemd units, start or stop allowlisted units, inspect Docker containers and start, stop or restart allowlisted ones, and inspect or upgrade packages (never install or remove)."
+    instructions = "Administer a Linux host: read the uptime, load average, memory and disk usage, inspect the metadata of allowed paths, inspect systemd units, start or stop allowlisted units, inspect Docker containers and start, stop or restart allowlisted ones, and inspect or upgrade packages (never install or remove)."
 )]
 impl ServerHandler for GilfoyleServer {
     async fn list_tools(

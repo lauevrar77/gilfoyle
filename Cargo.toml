@@ -3,6 +3,8 @@ resolver = "3"
 members = [
     "crates/core",
     "crates/system",
+    "crates/host",
+    "crates/path",
     "crates/systemd",
     "crates/packagekit",
     "crates/docker",
@@ -21,6 +23,8 @@ license = "MIT OR Apache-2.0"
 [workspace.dependencies]
 gilfoyle-core = { path = "crates/core" }
 gilfoyle-system = { path = "crates/system" }
+gilfoyle-host = { path = "crates/host" }
+gilfoyle-path = { path = "crates/path" }
 gilfoyle-systemd = { path = "crates/systemd" }
 gilfoyle-packagekit = { path = "crates/packagekit" }
 gilfoyle-docker = { path = "crates/docker" }
@@ -45,6 +49,8 @@ zbus_systemd = { version = "0.26201", default-features = false, features = ["sys
 russh = { version = "0.65", default-features = false, features = ["ring"] }
 
 regex = "1"
+rustix = { version = "1", features = ["fs"] }
+
 hyper = { version = "1", default-features = false, features = ["client", "http1"] }
 hyper-util = { version = "0.1", default-features = false, features = ["client-legacy", "http1", "tokio"] }
 http = "1"

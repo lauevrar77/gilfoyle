@@ -12,8 +12,14 @@ ni exécution de code ni privilèges sur l'hôte.
 
 - **Aucune exécution de code.** Les outils sont des fonctions compilées ; rien n'accepte une
   commande ou un chemin à exécuter. Le gestionnaire SSH refuse `shell`/`exec`/`pty` et toute
-  redirection. systemd et PackageKit sont joints via D-Bus in-process, et Docker via son
-  socket UNIX, jamais en lançant `systemctl`, `apt` ou `docker`.
+  redirection. systemd et PackageKit sont joints via D-Bus in-process, Docker via son socket
+  UNIX, et l'occupation disque via l'appel système `statvfs` en lecture seule, jamais en
+  lançant `systemctl`, `apt` ou `docker`.
+- **Aucune lecture non bornée.** Une lecture qui nomme un chemin arbitraire serait un oracle
+  de métadonnées sur tout le système de fichiers. Une lecture n'est donc ouverte que si elle
+  est bornée, nommée et non divulgante ; `path_status` est allowlistée (`[paths] allow`, vide
+  par défaut), renvoie des métadonnées et jamais le contenu, ne suit pas le dernier composant,
+  et renvoie une vraie erreur — pas « absent » — sur tout sauf `ENOENT`.
 - **Ni installation, ni suppression, par construction.** Le vocabulaire des opérations sur les
   paquets est une énumération fermée, sans variante install/remove ; les mises à niveau
   portent `ONLY_TRUSTED`, et un plan qui installerait ou supprimerait un paquet est refusé.
@@ -33,6 +39,8 @@ ni exécution de code ni privilèges sur l'hôte.
 - La limitation de débit est laissée au pare-feu et à systemd.
 - La rotation des clés exige un redémarrage.
 - Les certificats OpenSSH ne sont pas pris en charge.
+- `path_status` divulgue des métadonnées (existence, taille, propriétaire, dates) pour les
+  chemins déclarés ; c'est délibéré, borné par `[paths] allow`, et désactivé par défaut.
 
 Le transport SSH ajoute une surface de parseur avant authentification et un backend crypto C
 (`ring`) — un compromis assumé.

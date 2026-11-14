@@ -4,12 +4,81 @@ use async_trait::async_trait;
 
 use crate::{
     Allowlist, AppError, Container, ContainerAction, ContainerActionOutcome, ContainerAllowlist,
-    ContainerCatalog, ContainerControl, ContainerFilter, ContainerRef, ContainerStatus,
-    DockerAdmin, PackageAdmin, PackageAllowlist, PackageError, PackageFilter, PackageList,
-    PackageManager, PackageOperation, RefreshReport, ServiceCatalog, ServiceControl, SystemAdmin,
-    SystemdAdmin, Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus, UpdateFilter,
-    UpdateList, UpgradePlan, UpgradeReport, UptimeReport, UptimeSource,
+    ContainerCatalog, ContainerControl, ContainerFilter, ContainerRef, ContainerStatus, DiskAdmin,
+    DiskSource, DockerAdmin, FilesystemUsage, HostAdmin, LoadAndMemory, LoadSource, MemorySource,
+    PackageAdmin, PackageAllowlist, PackageError, PackageFilter, PackageList, PackageManager,
+    PackageOperation, PathAdmin, PathAllowlist, PathRef, PathSource, PathStatus, RefreshReport,
+    ServiceCatalog, ServiceControl, SystemAdmin, SystemdAdmin, Unit, UnitActionOutcome, UnitFilter,
+    UnitName, UnitStatus, UpdateFilter, UpdateList, UpgradePlan, UpgradeReport, UptimeReport,
+    UptimeSource,
 };
+
+/// Application service implementing the host metrics driving port.
+///
+/// Generic over the two driven ports so it is zero-cost in production and
+/// trivially testable with fake sources.
+pub struct HostService<L: LoadSource, M: MemorySource> {
+    load: L,
+    memory: M,
+}
+
+impl<L: LoadSource, M: MemorySource> HostService<L, M> {
+    /// Build a service backed by a load source and a memory source.
+    pub fn new(load: L, memory: M) -> Self {
+        Self { load, memory }
+    }
+}
+
+impl<L: LoadSource, M: MemorySource> HostAdmin for HostService<L, M> {
+    fn load_and_memory(&self) -> Result<LoadAndMemory, AppError> {
+        Ok(LoadAndMemory {
+            load: self.load.load_average()?,
+            memory: self.memory.memory()?,
+        })
+    }
+}
+
+/// Application service implementing the disk usage driving port.
+pub struct DiskService {
+    source: Arc<dyn DiskSource>,
+}
+
+impl DiskService {
+    /// Build a service backed by a disk source.
+    pub fn new(source: Arc<dyn DiskSource>) -> Self {
+        Self { source }
+    }
+}
+
+impl DiskAdmin for DiskService {
+    fn disk_usage(&self) -> Result<Vec<FilesystemUsage>, AppError> {
+        Ok(self.source.disk_usage()?)
+    }
+}
+
+/// Application service implementing the path metadata driving port.
+///
+/// The path is normalised, checked against the allowlist, and only then read.
+/// All of this is pure logic, testable with a fake source.
+pub struct PathService {
+    source: Arc<dyn PathSource>,
+    allowlist: PathAllowlist,
+}
+
+impl PathService {
+    /// Build a service from a path source and the allowlist.
+    pub fn new(source: Arc<dyn PathSource>, allowlist: PathAllowlist) -> Self {
+        Self { source, allowlist }
+    }
+}
+
+impl PathAdmin for PathService {
+    fn path_status(&self, path: &str) -> Result<PathStatus, AppError> {
+        let path = PathRef::parse(path)?;
+        self.allowlist.ensure_allowed(&path)?;
+        Ok(self.source.stat(&path)?)
+    }
+}
 
 /// Application service implementing the uptime driving port on top of a driven port.
 ///
