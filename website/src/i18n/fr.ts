@@ -23,7 +23,7 @@ export const fr: Dict = {
     skip: "Aller au contenu",
   },
   hero: {
-    status: "jeune projet · systemd · docker · paquets",
+    status: "jeune projet · hôte · systemd · docker · paquets",
     prompt: "gilfoyle@host:~$",
     typed: "whoami",
     name: "gilfoyle",
@@ -65,7 +65,7 @@ export const fr: Dict = {
     title: "Tu as donné un shell à une IA. Audacieux. Idiot aussi.",
     body: [
       "Avec un shell, tout ce que le modèle écrit peut s'exécuter comme commande. Une injection de prompt, une hallucination, une faute de frappe : tout part.",
-      "Je ne prends pas de commandes. J'expose une liste fixe de fonctions compilées. Les lectures sont libres. Je ne modifie que ce que tu as autorisé : démarrer et arrêter des unités et des conteneurs, rafraîchir et mettre à jour des paquets. Je n'installe ni ne supprime jamais rien.",
+      "Je ne prends pas de commandes. J'expose une liste fixe de fonctions compilées. Les lectures sont libres tant qu'elles sont bornées et inoffensives. Je ne modifie que ce que tu as autorisé : démarrer et arrêter des unités et des conteneurs, rafraîchir et mettre à jour des paquets. Je n'installe ni ne supprime jamais rien.",
     ],
     aside: "Je ne fais pas confiance à ton prompt. Je fais confiance au compilateur.",
   },
@@ -77,12 +77,13 @@ export const fr: Dict = {
     doTitle: "ce que je fais",
     refuseTitle: "ce que je refuse",
     do: [
-      { label: "lire", note: "uptime, unités, conteneurs, paquets. Toute clé peut lire." },
+      { label: "lire", note: "uptime, charge, mémoire, disque, unités, conteneurs, paquets." },
       {
         label: "démarrer / arrêter / redémarrer",
         note: "seulement les unités et conteneurs que tu as autorisés",
       },
       { label: "rafraîchir / mettre à jour", note: "les paquets, si tu l'autorises. De confiance uniquement." },
+      { label: "métadonnées de chemin", note: "seulement les chemins de [paths] allow. Jamais le contenu." },
       { label: "agréger", note: "une seule surface MCP pour plusieurs nœuds" },
     ],
     refuse: [
@@ -93,6 +94,7 @@ export const fr: Dict = {
       { label: "root", note: "je tourne sans privilèges et ne les élève jamais" },
       { label: "installer", note: "cette opération n'existe pas" },
       { label: "supprimer", note: "cette opération n'existe pas" },
+      { label: "lire un fichier hors liste", note: "ce chemin n'existe pas" },
     ],
   },
   guarantees: {
@@ -129,6 +131,11 @@ export const fr: Dict = {
       {
         title: "Les modifications sont refusées par défaut",
         body: "Les listes d'autorisation sont vides par défaut : [systemd] manage_units, [docker] manage_containers, [packagekit] allow. Rien n'est démarré, arrêté ou mis à jour tant que tu ne l'as pas listé.",
+        tag: "config",
+      },
+      {
+        title: "Les lectures restent bornées",
+        body: "Une lecture n'est ouverte que si elle est bornée, nommée et non divulgante. Un chemin ne l'est pas : path_status n'agit que sur [paths] allow (vide par défaut), renvoie des métadonnées et jamais le contenu.",
         tag: "config",
       },
       {
@@ -191,7 +198,7 @@ export const fr: Dict = {
       { attack: "se connecter par mot de passe", by: "clés publiques uniquement", result: "refusé", kind: "runtime" },
       { attack: "modifier avec une clé en lecture seule", by: "autorisation d'outils par clé", result: "refusé", kind: "runtime" },
       { attack: "injecter une commande dans un argument", by: "aucun shell pour l'interpréter", result: "rien ne s'exécute", kind: "structural" },
-      { attack: "lire un fichier arbitraire", by: "aucun outil ne prend de chemin", result: "outil inexistant", kind: "structural" },
+      { attack: "lire un fichier hors liste d'autorisation", by: "[paths] allow", result: "refusé", kind: "runtime" },
       { attack: "lancer un processus", by: "lint sur std::process::Command", result: "le build échoue", kind: "structural" },
       { attack: "installer ou supprimer un paquet", by: "énumération fermée", result: "opération inexistante", kind: "structural" },
       { attack: "créer ou supprimer un conteneur", by: "ensemble de requêtes fermé", result: "requête inexistante", kind: "structural" },
@@ -227,7 +234,7 @@ export const fr: Dict = {
           "ProtectHome",
           "PrivateTmp",
           "PrivateDevices",
-          "ReadOnlyPaths=/proc/uptime",
+          "ReadOnlyPaths=/proc/{uptime,loadavg,meminfo,mounts}",
         ],
       },
       {
@@ -264,7 +271,7 @@ export const fr: Dict = {
       },
     ],
     footnote:
-      "/proc/uptime est le seul fichier de l'hôte que je lis. systemd et PackageKit passent par le bus système et polkit décide. Docker passe par son socket, sans polkit.",
+      "Je lis quelques fichiers /proc, la table des montages, un appel statvfs en lecture seule, et les métadonnées des chemins que tu déclares. systemd et PackageKit passent par le bus système et polkit décide. Docker passe par son socket, sans polkit.",
     docker: {
       title: "Docker n'a pas de polkit",
       body: "Le socket Docker vaut root : un conteneur privilégié peut monter l'hôte. Mets devant un proxy de socket qui n'autorise que les endpoints que j'utilise, plutôt que d'ajouter mon utilisateur au groupe docker. manage_containers est vide par défaut, et l'action porte sur l'id résolu du conteneur : un renommage ne peut pas la rediriger.",
@@ -286,7 +293,7 @@ export const fr: Dict = {
       },
       {
         title: "Fuzzing, sous ASan",
-        body: "Huit cibles couvrent les parseurs : uptime, clés autorisées, config, config client, noms d'unités, ids de paquets, références de conteneurs et liste d'autorisation des conteneurs. Elles tournent en nightly avec AddressSanitizer.",
+        body: "Douze cibles couvrent les parseurs : uptime, charge moyenne, mémoire, montages, clés autorisées, config, config client, noms d'unités, ids de paquets, références de conteneurs, liste d'autorisation des conteneurs et des chemins. Elles tournent en nightly avec AddressSanitizer.",
       },
       {
         title: "Chaîne d'approvisionnement",
@@ -317,12 +324,36 @@ export const fr: Dict = {
     groups: [
       {
         name: "Hôte",
-        note: "/proc/uptime",
+        note: "/proc, et un appel statvfs en lecture seule",
         items: [
           {
             name: "get_uptime",
             args: "—",
             effect: "uptime de l'hôte, depuis le démarrage du noyau",
+            kind: "read",
+          },
+          {
+            name: "get_load_and_memory",
+            args: "—",
+            effect: "charge moyenne et mémoire",
+            kind: "read",
+          },
+          {
+            name: "get_disk_usage",
+            args: "—",
+            effect: "occupation des points de montage configurés",
+            kind: "read",
+          },
+        ],
+      },
+      {
+        name: "Chemins",
+        note: "allowlisté",
+        items: [
+          {
+            name: "path_status",
+            args: "path",
+            effect: "métadonnées d'un chemin autorisé (jamais le contenu)",
             kind: "read",
           },
         ],
@@ -453,13 +484,15 @@ export const fr: Dict = {
     index: "09",
     kicker: "architecture",
     title: "Les dépendances pointent vers l'intérieur.",
-    lead: "Huit crates. Le cœur définit les ports, les adaptateurs les implémentent, et le cœur n'importe jamais un adaptateur.",
+    lead: "Dix crates. Le cœur définit les ports, les adaptateurs les implémentent, et le cœur n'importe jamais un adaptateur.",
     crate: "crate",
     role: "rôle",
     io: "E/S",
     crates: [
       { name: "gilfoyle-core", role: "types du domaine, ports, cas d'usage", io: "aucune" },
       { name: "gilfoyle-system", role: "adaptateur piloté (uptime de l'hôte)", io: "lecture seule" },
+      { name: "gilfoyle-host", role: "adaptateur piloté (charge, mémoire, disque)", io: "lecture seule" },
+      { name: "gilfoyle-path", role: "adaptateur piloté (métadonnées de chemin)", io: "lecture seule" },
       { name: "gilfoyle-systemd", role: "adaptateur piloté (systemd via D-Bus)", io: "bus système" },
       { name: "gilfoyle-packagekit", role: "adaptateur piloté (PackageKit via D-Bus)", io: "bus système" },
       { name: "gilfoyle-docker", role: "adaptateur piloté (Docker via son socket UNIX)", io: "socket" },

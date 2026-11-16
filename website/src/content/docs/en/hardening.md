@@ -39,13 +39,14 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 
-ReadOnlyPaths=/proc/uptime
+ReadOnlyPaths=/proc/{uptime,loadavg,meminfo,mounts}
 ```
 
 - **No capabilities.** `CapabilityBoundingSet=` and `AmbientCapabilities=` are empty, and
   `NoNewPrivileges=yes` means the process can never gain one.
 - **A read-only view of the host.** `ProtectSystem=strict` and `ProtectHome=yes` make the
-  filesystem read-only; `/proc/uptime` is the only host file the service may read.
+  filesystem read-only; the host tools read a few fixed `/proc` files, and any path declared
+  in `[paths] allow` is read only.
 - **A syscall filter.** `SystemCallFilter=@system-service` allows only the service syscalls;
   anything else returns `EPERM`.
 - **No memory that is both writable and executable.** `MemoryDenyWriteExecute=yes`.

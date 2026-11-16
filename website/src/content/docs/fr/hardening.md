@@ -40,14 +40,14 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 
-ReadOnlyPaths=/proc/uptime
+ReadOnlyPaths=/proc/{uptime,loadavg,meminfo,mounts}
 ```
 
 - **Aucune capacité.** `CapabilityBoundingSet=` et `AmbientCapabilities=` sont vides, et
   `NoNewPrivileges=yes` signifie que le processus ne peut jamais en acquérir.
 - **Une vue en lecture seule de l'hôte.** `ProtectSystem=strict` et `ProtectHome=yes` rendent
-  le système de fichiers en lecture seule ; `/proc/uptime` est le seul fichier de l'hôte que le
-  service peut lire.
+  le système de fichiers en lecture seule ; les outils hôte lisent quelques fichiers `/proc`
+  fixes, et tout chemin déclaré dans `[paths] allow` n'est lu qu'en lecture seule.
 - **Un filtre d'appels système.** `SystemCallFilter=@system-service` n'autorise que les appels
   système de service ; tout le reste renvoie `EPERM`.
 - **Pas de mémoire à la fois inscriptible et exécutable.** `MemoryDenyWriteExecute=yes`.

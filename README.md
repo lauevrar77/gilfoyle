@@ -3,21 +3,25 @@
 [![CI](https://github.com/lauevrar77/gilfoyle/actions/workflows/ci.yml/badge.svg)](https://github.com/lauevrar77/gilfoyle/actions/workflows/ci.yml)
 
 A secure [MCP](https://modelcontextprotocol.io) server, written in Rust, that exposes Linux
-administration tools to an AI agent over **SSH**: reads are open, and the only mutations are
-starting and stopping allowlisted systemd units and Docker containers, and refreshing or
-upgrading allowlisted packages.
+administration tools to an AI agent over **SSH**: reads are open when they are bounded, named
+and non-disclosing (a read over an unbounded namespace, a path, is allowlisted), and the only
+mutations are starting and stopping allowlisted systemd units and Docker containers, and
+refreshing or upgrading allowlisted packages.
 
 Gilfoyle is built so that **it cannot execute anything**. There is no shell, no command
 passthrough and no scripting: every tool is a compiled function with fixed behaviour, and
-the only host interaction in the whole codebase is reading a handful of fixed files.
+the only host interaction in the whole codebase is reading a few fixed files, the mount
+table, one read-only `statvfs` syscall over the configured mounts, and the metadata of the
+paths the operator declared (never their contents).
 
 SSH is used purely as a **protocol**: the server serves an MCP subsystem and refuses every
 `shell`, `exec`, `pty` and forwarding request. A connection can never obtain a shell.
 
-> Status: early. Tools so far: `get_uptime`; systemd units (`list_units`, `unit_status`,
-> `start_unit`, `stop_unit`); Docker containers (`list_containers`, `container_status`,
-> `start_container`, `stop_container`, `restart_container`); packages (`list_packages`,
-> `list_updates`, `preview_upgrade`, `refresh_package_cache`, `upgrade_packages`).
+> Status: early. Tools so far: `get_uptime`, `get_load_and_memory`, `get_disk_usage`,
+> `path_status`; systemd units (`list_units`, `unit_status`, `start_unit`, `stop_unit`);
+> Docker containers (`list_containers`, `container_status`, `start_container`,
+> `stop_container`, `restart_container`); packages (`list_packages`, `list_updates`,
+> `preview_upgrade`, `refresh_package_cache`, `upgrade_packages`).
 
 ## Two roles
 
@@ -42,7 +46,11 @@ AI agent ──MCP(stdio)──▶ gilfoyle client ──SSH──▶ gilfoyle n
   makes any reference to `std::process::Command` a **compile error**.
 - systemd and PackageKit are reached over **in-process D-Bus**, never by spawning
   `systemctl` or `apt`; Docker is reached over its **UNIX socket**, never by spawning
-  `docker`.
+  `docker`; disk usage is read with the **read-only `statvfs` syscall**.
+- Reads are **open** when they are bounded, named and non-disclosing, and **allowlisted**
+  otherwise: a path is an unbounded namespace, so `path_status` acts only on paths listed in
+  `[paths] allow` (empty by default) and returns metadata, never contents (see
+  [docs/adr/0012](docs/adr/0012-reads-open-or-allowlisted.md)).
 - Authentication is **public key only** (`none`, `password` and `keyboard-interactive` are
   refused). Each key may carry a **tool grant**; a read-only key cannot reach a mutation.
 - Mutations are **default-deny**: `start_unit` and `stop_unit` act only on units listed in
@@ -65,6 +73,8 @@ graph.
 |---|---|---|
 | `gilfoyle-core` | domain types, ports, use cases | none |
 | `gilfoyle-system` | driven adapter (host uptime) | read-only |
+| `gilfoyle-host` | driven adapter (load, memory, disk usage) | read-only |
+| `gilfoyle-path` | driven adapter (path metadata) | read-only |
 | `gilfoyle-systemd` | driven adapter (systemd over D-Bus) | system bus |
 | `gilfoyle-packagekit` | driven adapter (PackageKit over D-Bus) | system bus |
 | `gilfoyle-docker` | driven adapter (Docker over its UNIX socket) | socket |
@@ -83,7 +93,7 @@ graph.
 **Run (node).**
 
 - A Linux host with **systemd** and an accessible system D-Bus (needed by the unit tools).
-- `/proc/uptime` for the uptime tool.
+- `/proc/uptime`, `/proc/loadavg`, `/proc/meminfo` and `/proc/mounts` for the host tools.
 - **polkit** (`polkitd`) — only to authorise `start_unit`/`stop_unit`. Reads need none.
 - **PackageKit** *and a backend* (APT on Debian/Ubuntu, DNF on Rocky) — only for the package
   tools. It is not installed by default on a minimal host; when absent the package tools
@@ -130,6 +140,7 @@ log_level = "info"                        # tracing filter, JSON logs on stderr
 [tools]
 enabled = [
   "get_uptime",
+  "get_load_and_memory", "get_disk_usage", "path_status",
   "list_units", "unit_status", "start_unit", "stop_unit",
   "list_packages", "list_updates", "preview_upgrade",
   "refresh_package_cache", "upgrade_packages",
@@ -139,6 +150,19 @@ enabled = [
 [systemd]
 # Units that may be started or stopped. Empty (the default) means none may.
 manage_units = ["nginx.service", "myapp.service"]
+
+[host]
+# Mount points whose disk usage is reported (default ["/"]). Only a UNIX
+# filesystem reached by the read-only statvfs syscall is probed; a path that is
+# not currently mounted is reported as not mounted, never as the parent's usage.
+disks = ["/", "/var"]
+
+[paths]
+# Paths whose metadata may be read. Empty (the default) means none may. An entry
+# is an absolute path (exact match) or a `re:` regular expression anchored to the
+# whole path. Only metadata is returned, never the contents. The shipped unit
+# sets ProtectHome=yes, so a path under /home or /root cannot be read.
+allow = ["/var/lib/myapp/last-run", "re:^/var/backups/[^/]+\\.dump$"]
 
 [packagekit]
 # Mutating package operations that may be performed. Empty (the default) means
@@ -222,6 +246,51 @@ Takes no arguments.
 { "uptime_seconds": 1048545.67, "uptime_human": "12d 3h 15m 45s" }
 ```
 
+### `get_load_and_memory`
+
+Reads the load average (`/proc/loadavg`) and memory usage (`/proc/meminfo`). Takes no
+arguments. Read-only and open.
+
+```json
+{
+  "load": { "one": 0.42, "five": 0.35, "fifteen": 0.30, "runnable": 1, "total": 312 },
+  "memory": { "total_kib": 8174832, "available_kib": 4120000, "used_kib": 4054832,
+              "swap_total_kib": 0, "swap_free_kib": 0, "used_percent": 49.6 }
+}
+```
+
+### `get_disk_usage`
+
+Reports the usage of the mount points in `[host] disks` (default `["/"]`), read with the
+read-only `statvfs` syscall. Takes no arguments. Read-only and open.
+
+A path that is not currently in `/proc/mounts` is reported as `mounted: false` with an
+error, and never measured (a `statvfs` on an unmounted mount point would return the parent
+filesystem's numbers). Network filesystems are reported as unsupported rather than probed,
+because a `statvfs` on a stale network mount can block.
+
+```json
+{ "filesystems": [ { "mount": "/", "device": "/dev/vda1", "fstype": "ext4",
+                     "mounted": true, "total_bytes": 42000000000,
+                     "used_bytes": 31000000000, "free_bytes": 11000000000,
+                     "used_percent": 73.8, "inodes_total": 2621440,
+                     "inodes_free": 900000, "inodes_used_percent": 65.7, "error": null } ] }
+```
+
+### `path_status`
+
+Returns the metadata of one path (never the contents) — for example to check that a job
+wrote its marker file. The path must be listed in `[paths] allow` (empty by default): a
+path is an unbounded namespace, so unlike the other reads this one is **allowlisted**.
+The final path component is not followed (`lstat`), and the tool never lists a directory.
+
+```json
+{ "path": "/var/lib/myapp/last-run", "exists": true, "kind": "file",
+  "size_bytes": 42, "age_seconds": 3120, "modified": "2026-11-14T02:00:00Z",
+  "accessed": "2026-11-14T02:00:00Z", "changed": "2026-11-14T02:00:00Z",
+  "mode": "0644", "uid": 998, "gid": 998, "symlink_target": null }
+```
+
 ### systemd tools
 
 systemd is reached over **in-process D-Bus** (`org.freedesktop.systemd1`); gilfoyle never
@@ -289,10 +358,10 @@ the action cannot target another container).
 ### Through the client
 
 The client adds a required `node` argument to every tool (a label, or `all` for the read
-tools `get_uptime`, `list_units`, `unit_status`, `list_packages`, `list_updates`,
-`preview_upgrade`, `list_containers` and `container_status`). `all` returns a per-node map,
-with a per-node error for any node that failed. A `list_nodes` tool reports each node's
-label, reachability and exposed tools.
+tools `get_uptime`, `get_load_and_memory`, `get_disk_usage`, `path_status`, `list_units`,
+`unit_status`, `list_packages`, `list_updates`, `preview_upgrade`, `list_containers` and
+`container_status`). `all` returns a per-node map, with a per-node error for any node that
+failed. A `list_nodes` tool reports each node's label, reachability and exposed tools.
 
 ## Authorising unit control (polkit)
 
@@ -353,10 +422,15 @@ hardening directive is needed.
 **In scope.** An attacker who reaches the SSH port, or who compromises the gilfoyle process,
 must not gain code execution or host privileges.
 
-- **No code execution.** Tools are compiled functions; nothing accepts a command or path to
-  run. The SSH handler refuses `shell`/`exec`/`pty` and all forwarding. systemd and
-  PackageKit are reached over in-process D-Bus, and Docker over its UNIX socket, never by
-  spawning `systemctl`, `apt` or `docker`.
+- **No code execution.** Tools are compiled functions; nothing accepts a command, a script
+  or a path to run. The SSH handler refuses `shell`/`exec`/`pty` and all forwarding. systemd
+  and PackageKit are reached over in-process D-Bus, Docker over its UNIX socket, and disk
+  usage through the read-only `statvfs` syscall, never by spawning `systemctl`, `apt` or
+  `docker`.
+- **No unbounded read.** A read that names an arbitrary path would be a metadata oracle
+  over the whole filesystem. `path_status` therefore acts only on paths listed in
+  `[paths] allow`, returns metadata and never contents, does not follow the final path
+  component, and reports a real error (not "absent") on anything but `ENOENT`.
 - **No install, no remove, by construction.** The package operation vocabulary is a closed
   enum with no install/remove variant; upgrades carry `ONLY_TRUSTED`, and a plan that would
   install or remove a package is refused. Docker has no create or remove operation at all.
@@ -372,6 +446,8 @@ must not gain code execution or host privileges.
 **Out of scope for now.** Rate limiting is left to the firewall and systemd; key rotation
 requires a restart; OpenSSH certificates are not supported. The SSH transport adds a
 pre-authentication parser surface and a C crypto backend (`ring`) — a deliberate trade.
+`path_status` discloses metadata (existence, size, owner, times) for the declared paths, a
+deliberate trade that keeps `[paths] allow` empty by default; keep it narrow.
 
 ## Quality
 

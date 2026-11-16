@@ -80,7 +80,8 @@ host_key = "/etc/gilfoyle/ssh_host_ed25519_key"
 # optional: max_connections, max_channels_per_connection, log_level
 
 [tools]
-enabled = ["get_uptime", "list_units", "unit_status", "start_unit", "stop_unit",
+enabled = ["get_uptime", "get_load_and_memory", "get_disk_usage", "path_status",
+           "list_units", "unit_status", "start_unit", "stop_unit",
            "list_packages", "list_updates", "preview_upgrade",
            "refresh_package_cache", "upgrade_packages",
            "list_containers", "container_status", "start_container", "stop_container",
@@ -88,6 +89,15 @@ enabled = ["get_uptime", "list_units", "unit_status", "start_unit", "stop_unit",
 
 [systemd]
 manage_units = ["nginx.service"]          # empty (default) means none may be started/stopped
+
+[host]
+disks = ["/"]                             # mount points to report (default ["/"])
+
+[paths]
+allow = []                                # paths whose metadata may be read; empty (default) means
+                                          # none. Absolute path or "re:<regex>". Metadata only.
+                                          # The shipped unit sets ProtectHome=yes, so a path under
+                                          # /home or /root cannot be read.
 
 [packagekit]
 allow = []                                # subset of ["refresh", "upgrade"]; empty means none;
@@ -267,13 +277,16 @@ Questions (skip one only if its "no" branch is chosen):
       which socket path to set as [docker] endpoint.
   Q9. TOOL_GRANTS — whether each client key is narrowed to a subset of tools or inherits
       [tools] enabled.
+  Q10. WATCHED_PATHS — the absolute paths whose metadata may be read (e.g. a job marker
+       file), or none for an empty [paths] allow. Entries are exact paths or "re:<regex>".
+       Only metadata is returned, never contents. Empty is the safe default.
 
 Then:
 1. Fresh install: follow docs/INSTALL.md "Fresh install (node)" with my answers. Update:
    follow the matching section under "Updating".
 2. Write /etc/gilfoyle/config.toml (0640 root:gilfoyle) with bind, host_key, [tools] enabled,
-   [systemd] manage_units, [packagekit] allow, [docker] endpoint and manage_containers, and
-   one [[keys]] per key in CLIENT_KEYS.
+   [systemd] manage_units, [host] disks, [paths] allow, [packagekit] allow, [docker] endpoint
+   and manage_containers, and one [[keys]] per key in CLIENT_KEYS.
 3. Install packaging/gilfoyle.service, daemon-reload, enable --now gilfoyle.
 4. If MANAGED_UNITS is not empty: ensure polkit is installed, then
    `gilfoyle systemd polkit-rule | sudo tee /etc/polkit-1/rules.d/49-gilfoyle-units.rules`.

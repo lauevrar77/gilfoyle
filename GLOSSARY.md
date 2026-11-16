@@ -165,3 +165,37 @@ _Avoid_: token, credential, API key
 The time elapsed since the host kernel booted (read from `/proc/uptime`), not the age of
 the gilfoyle process.
 _Avoid_: process uptime
+
+**Load average**:
+The average number of jobs in the run queue over one, five and fifteen minutes.
+_Avoid_: CPU usage, utilisation
+
+**Memory**:
+The host RAM in use, as total minus available, with its swap.
+_Avoid_: RAM, heap
+
+## Filesystems
+
+**Mount point**:
+An absolute path at which a filesystem is mounted (`/`, `/var`), as configured in
+`[host] disks`.
+_Avoid_: partition, volume
+
+**Filesystem usage**:
+The size and inode counts of one mounted filesystem, read with the read-only `statvfs`
+syscall. A configured path that is not currently mounted is reported as not mounted, never
+as the parent filesystem's usage.
+_Avoid_: disk space, storage
+
+## Paths
+
+**Watched path**:
+A path listed in `[paths] allow` whose metadata gilfoyle may read. The allowlist is empty
+by default, so no path may be read until the operator opts in.
+_Avoid_: allowed file
+
+**Path metadata**:
+What `path_status` returns for a watched path: existence, kind, size, times, mode and
+owner. Never the contents, and never a directory listing.
+_Avoid_: file info, stat
+

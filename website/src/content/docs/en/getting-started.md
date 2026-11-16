@@ -6,13 +6,16 @@ lang: en
 ---
 
 Gilfoyle is a secure [MCP](https://modelcontextprotocol.io) server, written in Rust, that
-exposes Linux administration tools to an AI agent over **SSH**. Reads are open; the only
-mutations are starting and stopping allowlisted systemd units and Docker containers, and
-refreshing or upgrading allowlisted packages.
+exposes Linux administration tools to an AI agent over **SSH**. Reads are open when they are
+bounded, named and non-disclosing; a read over an unbounded namespace (a path) is
+allowlisted. The only mutations are starting and stopping allowlisted systemd units and
+Docker containers, and refreshing or upgrading allowlisted packages.
 
 It is built so that **it cannot execute anything**. There is no shell, no command
 passthrough and no scripting: every tool is a compiled function with fixed behaviour, and
-the only host interaction in the whole codebase is reading a handful of fixed files.
+the only host interaction in the whole codebase is reading a few fixed `/proc` files, the
+mount table, one read-only `statvfs` syscall over the configured mounts, and the metadata of
+the paths the operator declared (never their contents).
 
 ## Two roles
 
@@ -32,7 +35,7 @@ AI agent ──MCP(stdio)──▶ gilfoyle client ──SSH──▶ node @ hos
 **Node**
 
 - A Linux host with systemd and an accessible system D-Bus.
-- `/proc/uptime` for the uptime tool.
+- `/proc/uptime`, `/proc/loadavg`, `/proc/meminfo` and `/proc/mounts` for the host tools.
 - polkit (`polkitd`) — only to authorise `start_unit` and `stop_unit`.
 - PackageKit and a backend (APT, DNF) — only for the package tools.
 - Docker — only for the container tools. When absent, the container tools report a clear

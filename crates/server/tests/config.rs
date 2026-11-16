@@ -1,4 +1,4 @@
-use gilfoyle_core::PackageOperation;
+use gilfoyle_core::{PackageOperation, PathRef};
 use gilfoyle_server::config::{
     ConfigError, DEFAULT_DOCKER_ENDPOINT, DEFAULT_HOST_KEY_PATH, DEFAULT_LOG_LEVEL,
     DEFAULT_MAX_CHANNELS_PER_CONNECTION, DEFAULT_MAX_CONNECTIONS, RawConfig, known_tools,
@@ -374,4 +374,122 @@ fn resolve_docker_endpoint_trims_and_defaults() {
         std::path::PathBuf::from("/run/docker.sock")
     );
     assert!(resolve_docker_endpoint(Some(String::new())).is_err());
+}
+
+#[test]
+fn known_tools_include_the_host_and_path_tools() {
+    let tools = known_tools();
+    for tool in ["get_load_and_memory", "get_disk_usage", "path_status"] {
+        assert!(tools.contains(tool), "{tool}");
+    }
+}
+
+#[test]
+fn host_disks_default_to_the_root_filesystem() {
+    let config = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+        public_key()
+    ))
+    .unwrap();
+    let mounts: Vec<&str> = config
+        .mount_points
+        .iter()
+        .map(|point| point.as_str())
+        .collect();
+    assert_eq!(mounts, vec!["/"]);
+}
+
+#[test]
+fn resolves_the_mount_points() {
+    let config = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n\
+         [host]\n\
+         disks = [\"/\", \"/var\"]\n\
+         [[keys]]\n\
+         id = \"a\"\n\
+         public_key = \"{}\"\n",
+        public_key()
+    ))
+    .unwrap();
+    let mounts: Vec<&str> = config
+        .mount_points
+        .iter()
+        .map(|point| point.as_str())
+        .collect();
+    assert_eq!(mounts, vec!["/", "/var"]);
+}
+
+#[test]
+fn an_explicit_empty_disks_list_means_none() {
+    let config = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n[host]\ndisks = []\n[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+        public_key()
+    ))
+    .unwrap();
+    assert!(config.mount_points.is_empty());
+}
+
+#[test]
+fn rejects_an_invalid_mount_point() {
+    let result = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n[host]\ndisks = [\"relative\"]\n[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+        public_key()
+    ));
+    assert_eq!(
+        result.unwrap_err(),
+        ConfigError::InvalidMountPoint("relative".to_string())
+    );
+}
+
+#[test]
+fn paths_default_to_empty() {
+    let config = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+        public_key()
+    ))
+    .unwrap();
+    assert!(config.path_allowlist.is_empty());
+}
+
+#[test]
+fn resolves_the_path_allowlist() {
+    let config = resolve(&format!(
+        "bind = \"127.0.0.1:2222\"\n\
+         [paths]\n\
+         allow = [\"/var/lib/app/last-run\", \"re:^/var/backups/[^/]+$\"]\n\
+         [[keys]]\n\
+         id = \"a\"\n\
+         public_key = \"{}\"\n",
+        public_key()
+    ))
+    .unwrap();
+    assert!(
+        config
+            .path_allowlist
+            .contains(&PathRef::parse("/var/lib/app/last-run").unwrap())
+    );
+    assert!(
+        config
+            .path_allowlist
+            .contains(&PathRef::parse("/var/backups/nightly").unwrap())
+    );
+    assert!(
+        !config
+            .path_allowlist
+            .contains(&PathRef::parse("/etc/shadow").unwrap())
+    );
+}
+
+#[test]
+fn rejects_invalid_path_entries() {
+    for entry in ["relative", "re:[", "re:"] {
+        let result = resolve(&format!(
+            "bind = \"127.0.0.1:2222\"\n[paths]\nallow = [\"{entry}\"]\n[[keys]]\nid = \"a\"\npublic_key = \"{}\"\n",
+            public_key()
+        ));
+        assert_eq!(
+            result.unwrap_err(),
+            ConfigError::InvalidPathEntry(entry.to_string())
+        );
+    }
 }

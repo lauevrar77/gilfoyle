@@ -6,14 +6,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gilfoyle_core::{
-    ContainerCatalog, ContainerControl, DockerAdmin, DockerService, PackageAdmin, PackageManager,
-    PackageService, ServiceCatalog, ServiceControl, SystemAdmin, SystemService, SystemdAdmin,
-    SystemdService,
+    ContainerCatalog, ContainerControl, DiskAdmin, DiskService, DockerAdmin, DockerService,
+    HostAdmin, HostService, PackageAdmin, PackageManager, PackageService, PathAdmin, PathService,
+    ServiceCatalog, ServiceControl, SystemAdmin, SystemService, SystemdAdmin, SystemdService,
 };
 use gilfoyle_docker::LazyDocker;
+use gilfoyle_host::{DiskProbe, ProcLoad, ProcMeminfo};
 use gilfoyle_packagekit::{
     DEFAULT_CALL_TIMEOUT, DEFAULT_LIMIT, DEFAULT_POLL_TIMEOUT, LazyPackagekit,
 };
+use gilfoyle_path::PathProbe;
 use gilfoyle_ssh::{Principal, ServiceFactory, SshServer, hostkey, policy};
 use gilfoyle_system::ProcUptime;
 use gilfoyle_systemd::LazySystemd;
@@ -24,6 +26,9 @@ use crate::mcp::GilfoyleServer;
 /// Builds a [`GilfoyleServer`] per authenticated key, with that key's tool grant.
 pub struct ServiceBuilder {
     admin: Arc<dyn SystemAdmin>,
+    host: Arc<dyn HostAdmin>,
+    disk: Arc<dyn DiskAdmin>,
+    paths: Arc<dyn PathAdmin>,
     systemd: Arc<dyn SystemdAdmin>,
     packages: Arc<dyn PackageAdmin>,
     docker: Arc<dyn DockerAdmin>,
@@ -39,6 +44,9 @@ impl ServiceFactory for ServiceBuilder {
         let tools = policy::effective_tools(grant, &self.global);
         GilfoyleServer::new(
             Arc::clone(&self.admin),
+            Arc::clone(&self.host),
+            Arc::clone(&self.disk),
+            Arc::clone(&self.paths),
             Arc::clone(&self.systemd),
             Arc::clone(&self.packages),
             Arc::clone(&self.docker),
@@ -50,6 +58,17 @@ impl ServiceFactory for ServiceBuilder {
 /// Run the node until the process is stopped.
 pub async fn run(config: Config) -> Result<(), String> {
     let admin: Arc<dyn SystemAdmin> = Arc::new(SystemService::new(ProcUptime::new()));
+
+    let host: Arc<dyn HostAdmin> = Arc::new(HostService::new(ProcLoad::new(), ProcMeminfo::new()));
+
+    let disk: Arc<dyn DiskAdmin> = Arc::new(DiskService::new(Arc::new(DiskProbe::new(
+        config.mount_points.clone(),
+    ))));
+
+    let paths: Arc<dyn PathAdmin> = Arc::new(PathService::new(
+        Arc::new(PathProbe),
+        config.path_allowlist.clone(),
+    ));
 
     let lazy = Arc::new(LazySystemd::system());
     let catalog: Arc<dyn ServiceCatalog> = lazy.clone();
@@ -112,6 +131,9 @@ pub async fn run(config: Config) -> Result<(), String> {
 
     let factory = ServiceBuilder {
         admin,
+        host,
+        disk,
+        paths,
         systemd,
         packages,
         docker,

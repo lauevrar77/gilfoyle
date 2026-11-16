@@ -34,7 +34,7 @@ const unit: { k: string; v: string }[] = [
   { k: "SystemCallArchitectures", v: "native" },
   { k: "SystemCallFilter", v: "@system-service" },
   { k: "SystemCallErrorNumber", v: "EPERM" },
-  { k: "ReadOnlyPaths", v: "/proc/uptime" },
+  { k: "ReadOnlyPaths", v: "/proc/{uptime,loadavg,meminfo,mounts}" },
 ];
 ---
 

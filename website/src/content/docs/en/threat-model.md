@@ -12,8 +12,13 @@ code execution or host privileges.
 
 - **No code execution.** Tools are compiled functions; nothing accepts a command or a path
   to run. The SSH handler refuses `shell`/`exec`/`pty` and all forwarding. systemd and
-  PackageKit are reached over in-process D-Bus, and Docker over its UNIX socket, never by
-  spawning `systemctl`, `apt` or `docker`.
+  PackageKit are reached over in-process D-Bus, Docker over its UNIX socket, and disk usage
+  through the read-only `statvfs` syscall, never by spawning `systemctl`, `apt` or `docker`.
+- **No unbounded read.** A read that names an arbitrary path would be a metadata oracle over
+  the whole filesystem. So a read is open only when it is bounded, named and non-disclosing;
+  `path_status` is allowlisted (`[paths] allow`, empty by default), returns metadata and
+  never contents, does not follow the final path component, and reports a real error — not
+  "absent" — on anything but `ENOENT`.
 - **No install, no remove, by construction.** The package operation vocabulary is a closed
   enum with no install/remove variant; upgrades carry `ONLY_TRUSTED`, and a plan that would
   install or remove a package is refused. Docker has no create or remove operation at all.
@@ -31,6 +36,8 @@ code execution or host privileges.
 - Rate limiting is left to the firewall and systemd.
 - Key rotation requires a restart.
 - OpenSSH certificates are not supported.
+- `path_status` discloses metadata (existence, size, owner, times) for the declared paths;
+  this is deliberate, bounded by `[paths] allow`, and off by default.
 
 The SSH transport adds a pre-authentication parser surface and a C crypto backend (`ring`) —
 a deliberate trade.

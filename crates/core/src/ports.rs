@@ -2,7 +2,8 @@ use async_trait::async_trait;
 
 use crate::{
     AppError, Container, ContainerActionOutcome, ContainerFilter, ContainerIdentity, ContainerRef,
-    ContainerStatus, DockerError, PackageError, PackageFilter, PackageList, RefreshReport,
+    ContainerStatus, DiskError, DockerError, FilesystemUsage, LoadAndMemory, LoadAverage, Memory,
+    PackageError, PackageFilter, PackageList, PathError, PathRef, PathStatus, RefreshReport,
     SystemError, SystemdError, Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus,
     UpdateFilter, UpdateList, UpgradePlan, UpgradeReport, Uptime, UptimeReport,
 };
@@ -19,6 +20,59 @@ pub trait UptimeSource: Send + Sync {
 pub trait SystemAdmin: Send + Sync {
     /// Read the current host uptime, ready to be rendered to a client.
     fn uptime(&self) -> Result<UptimeReport, AppError>;
+}
+
+/// Outbound (driven) port: a source of the host load average.
+///
+/// Implemented by adapters in `gilfoyle-host`.
+pub trait LoadSource: Send + Sync {
+    /// Read the current host load average.
+    fn load_average(&self) -> Result<LoadAverage, SystemError>;
+}
+
+/// Outbound (driven) port: a source of host memory usage.
+///
+/// Implemented by adapters in `gilfoyle-host`.
+pub trait MemorySource: Send + Sync {
+    /// Read the current host memory usage.
+    fn memory(&self) -> Result<Memory, SystemError>;
+}
+
+/// Inbound (driving) port: the host metrics gilfoyle exposes.
+pub trait HostAdmin: Send + Sync {
+    /// Read the load average and memory usage, ready to be rendered.
+    fn load_and_memory(&self) -> Result<LoadAndMemory, AppError>;
+}
+
+/// Outbound (driven) port: usage of the configured mount points.
+///
+/// Implemented by the disk adapter in `gilfoyle-host`.
+pub trait DiskSource: Send + Sync {
+    /// Report usage for every configured mount point, in configuration order.
+    fn disk_usage(&self) -> Result<Vec<FilesystemUsage>, DiskError>;
+}
+
+/// Inbound (driving) port: the disk usage gilfoyle exposes.
+pub trait DiskAdmin: Send + Sync {
+    /// Report usage for every configured mount point.
+    fn disk_usage(&self) -> Result<Vec<FilesystemUsage>, AppError>;
+}
+
+/// Outbound (driven) port: metadata of one allowlisted path.
+///
+/// Implemented by the path adapter in `gilfoyle-path`.
+pub trait PathSource: Send + Sync {
+    /// Read the metadata of one path.
+    fn stat(&self, path: &PathRef) -> Result<PathStatus, PathError>;
+}
+
+/// Inbound (driving) port: the path metadata gilfoyle exposes.
+///
+/// The path is taken as a raw string, normalised here, and checked against the
+/// allowlist before reaching the adapter.
+pub trait PathAdmin: Send + Sync {
+    /// Read the metadata of one allowed path.
+    fn path_status(&self, path: &str) -> Result<PathStatus, AppError>;
 }
 
 /// Outbound (driven) port: read-only access to systemd units.

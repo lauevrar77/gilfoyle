@@ -9,7 +9,8 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use gilfoyle_core::{
-    Allowlist, ContainerAllowlist, DomainError, PackageAllowlist, PackageOperation, UnitName,
+    Allowlist, ContainerAllowlist, DomainError, MountPoint, MountPoints, PackageAllowlist,
+    PackageOperation, PathAllowlist, UnitName,
 };
 use gilfoyle_ssh::{AuthorizedKeys, KeyError};
 use serde::Deserialize;
@@ -35,8 +36,11 @@ pub const DEFAULT_DOCKER_STOP_TIMEOUT_SECONDS: u64 = 30;
 pub const DEFAULT_DOCKER_LIMIT: usize = 100;
 
 /// Every tool a node can expose.
-pub const KNOWN_TOOLS: [&str; 15] = [
+pub const KNOWN_TOOLS: [&str; 18] = [
     "get_uptime",
+    "get_load_and_memory",
+    "get_disk_usage",
+    "path_status",
     "list_units",
     "unit_status",
     "start_unit",
@@ -52,6 +56,15 @@ pub const KNOWN_TOOLS: [&str; 15] = [
     "stop_container",
     "restart_container",
 ];
+
+/// The read tools that are **allowlisted** rather than open.
+///
+/// A read is open when it is bounded, named and does not disclose host contents
+/// or configuration; a read over an unbounded namespace (paths) is declared by
+/// the operator and refused until then (see `docs/adr/0012`). A test pins this
+/// set against the tools' `read_only_hint` so a new read cannot be classified by
+/// accident.
+pub const ALLOWLISTED_READS: [&str; 1] = ["path_status"];
 
 /// The known tools as a set.
 pub fn known_tools() -> BTreeSet<String> {
@@ -97,6 +110,12 @@ pub enum ConfigError {
     /// A `[docker] manage_containers` entry was not a valid name or `re:` pattern.
     #[error("invalid entry in [docker] manage_containers: {0}")]
     InvalidContainerEntry(String),
+    /// A `[host] disks` entry was not a valid absolute mount point.
+    #[error("invalid mount point in [host] disks: {0}")]
+    InvalidMountPoint(String),
+    /// A `[paths] allow` entry was not a valid path or `re:` pattern.
+    #[error("invalid entry in [paths] allow: {0}")]
+    InvalidPathEntry(String),
     /// A field from the HTTP-era configuration was found.
     #[error("`{0}` is from the old HTTP configuration and is no longer supported; remove it")]
     LegacyField(String),
@@ -127,6 +146,12 @@ pub struct RawConfig {
     /// systemd settings.
     #[serde(default)]
     pub systemd: RawSystemd,
+    /// Host metrics settings.
+    #[serde(default)]
+    pub host: RawHost,
+    /// Watched-path settings.
+    #[serde(default)]
+    pub paths: RawPaths,
     /// package settings.
     #[serde(default)]
     pub packagekit: RawPackagekit,
@@ -160,6 +185,26 @@ pub struct RawSystemd {
     /// Units that may be started or stopped. Empty means none may.
     #[serde(default)]
     pub manage_units: Vec<String>,
+}
+
+/// Raw `[host]` section.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawHost {
+    /// Mount points whose usage is reported. Absent means `["/"]`; an explicit
+    /// empty list means none.
+    #[serde(default)]
+    pub disks: Option<Vec<String>>,
+}
+
+/// Raw `[paths]` section.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RawPaths {
+    /// Paths whose metadata may be read. Entries are absolute paths or
+    /// `re:<regex>` patterns. Empty means none may.
+    #[serde(default)]
+    pub allow: Vec<String>,
 }
 
 /// Raw `[packagekit]` section.
@@ -241,6 +286,10 @@ pub struct Config {
     pub enabled_tools: BTreeSet<String>,
     /// Units that may be started or stopped.
     pub allowlist: Allowlist,
+    /// Mount points whose disk usage is reported.
+    pub mount_points: MountPoints,
+    /// Paths whose metadata may be read.
+    pub path_allowlist: PathAllowlist,
     /// Package operations that may be performed.
     pub package_allowlist: PackageAllowlist,
     /// Whether an upgrade may install or remove packages transitively.
@@ -305,6 +354,8 @@ pub fn resolve_config(
             .unwrap_or(DEFAULT_MAX_CHANNELS_PER_CONNECTION),
         enabled_tools: resolve_enabled(raw.tools.enabled)?,
         allowlist: resolve_allowlist(&raw.systemd.manage_units)?,
+        mount_points: resolve_mount_points(raw.host.disks)?,
+        path_allowlist: resolve_path_allowlist(&raw.paths.allow)?,
         package_allowlist: resolve_package_allowlist(&raw.packagekit.allow)?,
         allow_transitive_changes: raw.packagekit.allow_transitive_changes,
         package_poll_timeout_seconds: raw.packagekit.poll_timeout_seconds,
@@ -361,6 +412,33 @@ pub fn resolve_allowlist(units: &[String]) -> Result<Allowlist, ConfigError> {
         names.insert(name.as_str().to_string());
     }
     Ok(Allowlist::new(names))
+}
+
+/// Resolve the mount points to report. Absent means the root filesystem;
+/// invalid entries fail the load (fail-closed).
+pub fn resolve_mount_points(disks: Option<Vec<String>>) -> Result<MountPoints, ConfigError> {
+    match disks {
+        None => Ok(MountPoints::root()),
+        Some(entries) => {
+            let mut points = Vec::with_capacity(entries.len());
+            for entry in entries {
+                let point = MountPoint::parse(&entry)
+                    .map_err(|_| ConfigError::InvalidMountPoint(entry.clone()))?;
+                points.push(point);
+            }
+            Ok(MountPoints::new(points))
+        }
+    }
+}
+
+/// Build the watched-path allowlist. Invalid entries fail the load (fail-closed).
+pub fn resolve_path_allowlist(entries: &[String]) -> Result<PathAllowlist, ConfigError> {
+    PathAllowlist::parse(entries.to_vec()).map_err(|error| match error {
+        DomainError::InvalidPathEntry(entry) | DomainError::InvalidPathPattern(entry) => {
+            ConfigError::InvalidPathEntry(entry)
+        }
+        other => ConfigError::InvalidPathEntry(other.to_string()),
+    })
 }
 
 /// Normalise the package-operation allowlist. Unknown operations fail the load

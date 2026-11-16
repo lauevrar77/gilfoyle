@@ -22,6 +22,12 @@ path = "../crates/core"
 [dependencies.gilfoyle-system]
 path = "../crates/system"
 
+[dependencies.gilfoyle-host]
+path = "../crates/host"
+
+[dependencies.gilfoyle-path]
+path = "../crates/path"
+
 [dependencies.gilfoyle-server]
 path = "../crates/server"
 
@@ -83,6 +89,34 @@ bench = false
 [[bin]]
 name = "container_allowlist"
 path = "fuzz_targets/container_allowlist.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "loadavg_parse"
+path = "fuzz_targets/loadavg_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "meminfo_parse"
+path = "fuzz_targets/meminfo_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mounts_parse"
+path = "fuzz_targets/mounts_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "path_allowlist"
+path = "fuzz_targets/path_allowlist.rs"
 test = false
 doc = false
 bench = false

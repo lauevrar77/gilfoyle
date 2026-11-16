@@ -54,6 +54,10 @@ fuzz:
 	$(CARGO) fuzz run package_id -- -runs=$(FUZZ_RUNS)
 	$(CARGO) fuzz run container_ref -- -runs=$(FUZZ_RUNS)
 	$(CARGO) fuzz run container_allowlist -- -runs=$(FUZZ_RUNS)
+	$(CARGO) fuzz run loadavg_parse -- -runs=$(FUZZ_RUNS)
+	$(CARGO) fuzz run meminfo_parse -- -runs=$(FUZZ_RUNS)
+	$(CARGO) fuzz run mounts_parse -- -runs=$(FUZZ_RUNS)
+	$(CARGO) fuzz run path_allowlist -- -runs=$(FUZZ_RUNS)
 
 package-release:
 	./scripts/package-release.sh

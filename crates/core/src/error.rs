@@ -36,6 +36,21 @@ pub enum DomainError {
     /// A container state filter value was not a known lifecycle state.
     #[error("unknown container state: {0}")]
     UnknownContainerState(String),
+    /// A load average was not a finite, non-negative number.
+    #[error("load average must be a finite non-negative number, got {0}")]
+    InvalidLoadAverage(f64),
+    /// A configured mount point was not a non-empty absolute path.
+    #[error("invalid mount point: {0}")]
+    InvalidMountPoint(String),
+    /// A queried path was not a non-empty absolute path without `..`.
+    #[error("invalid path: {0}")]
+    InvalidPath(String),
+    /// A `[paths] allow` entry was not a valid absolute path.
+    #[error("invalid path in [paths] allow: {0}")]
+    InvalidPathEntry(String),
+    /// A `[paths] allow` entry was not a valid `re:` regular expression.
+    #[error("invalid path allowlist pattern: {0}")]
+    InvalidPathPattern(String),
 }
 
 /// Errors raised by an outbound (driven) adapter while probing the host.
@@ -126,6 +141,35 @@ pub enum DockerError {
     },
 }
 
+/// Errors raised by the disk adapter.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum DiskError {
+    /// `/proc/mounts` (or an injected fixture) could not be read.
+    #[error("failed to read {path}: {message}")]
+    Io {
+        /// The path that could not be read.
+        path: String,
+        /// The underlying error.
+        message: String,
+    },
+    /// A mount line was malformed.
+    #[error("malformed mount entry: {0}")]
+    Malformed(String),
+}
+
+/// Errors raised by the path adapter.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum PathError {
+    /// The path could not be queried for a reason other than absence.
+    #[error("failed to stat `{path}`: {message}")]
+    Failed {
+        /// The path queried.
+        path: String,
+        /// The underlying error.
+        message: String,
+    },
+}
+
 /// Errors surfaced by the application layer (the driving ports).
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum AppError {
@@ -153,4 +197,13 @@ pub enum AppError {
     /// A Docker operation failed.
     #[error(transparent)]
     Docker(#[from] DockerError),
+    /// A disk usage probe failed.
+    #[error(transparent)]
+    Disk(#[from] DiskError),
+    /// A path is not in the allowlist, so its metadata may not be read.
+    #[error("path `{0}` is not an allowed path")]
+    PathNotAllowed(String),
+    /// A path metadata probe failed.
+    #[error(transparent)]
+    Path(#[from] PathError),
 }

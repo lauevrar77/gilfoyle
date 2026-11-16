@@ -23,8 +23,11 @@ use crate::node::Upstream;
 pub const ALL_NODES: &str = "all";
 
 /// Tools that may be fanned out across every node.
-pub const READ_TOOLS: [&str; 8] = [
+pub const READ_TOOLS: [&str; 11] = [
     "get_uptime",
+    "get_load_and_memory",
+    "get_disk_usage",
+    "path_status",
     "list_units",
     "unit_status",
     "list_packages",

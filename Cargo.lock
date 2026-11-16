@@ -800,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-client"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "futures-util",
  "gilfoyle-ssh",
@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -829,7 +829,7 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-docker"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -845,8 +845,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gilfoyle-host"
+version = "0.6.0"
+dependencies = [
+ "gilfoyle-core",
+ "rustix",
+ "tempfile",
+]
+
+[[package]]
 name = "gilfoyle-packagekit"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -856,15 +865,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "gilfoyle-path"
+version = "0.6.0"
+dependencies = [
+ "chrono",
+ "gilfoyle-core",
+ "tempfile",
+]
+
+[[package]]
 name = "gilfoyle-server"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "clap",
  "gilfoyle-client",
  "gilfoyle-core",
  "gilfoyle-docker",
+ "gilfoyle-host",
  "gilfoyle-packagekit",
+ "gilfoyle-path",
  "gilfoyle-ssh",
  "gilfoyle-system",
  "gilfoyle-systemd",
@@ -881,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-ssh"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "rand",
  "rmcp",
@@ -895,7 +915,7 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-system"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "gilfoyle-core",
  "tempfile",
@@ -903,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "gilfoyle-systemd"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-trait",
  "futures-util",

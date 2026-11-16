@@ -21,6 +21,7 @@ log_level = "info"                        # tracing filter, JSON logs on stderr
 [tools]
 enabled = [
   "get_uptime",
+  "get_load_and_memory", "get_disk_usage", "path_status",
   "list_units", "unit_status", "start_unit", "stop_unit",
   "list_packages", "list_updates", "preview_upgrade",
   "refresh_package_cache", "upgrade_packages",
@@ -30,6 +31,17 @@ enabled = [
 [systemd]
 # Units that may be started or stopped. Empty (the default) means none may.
 manage_units = ["nginx.service", "myapp.service"]
+
+[host]
+# Mount points whose disk usage is reported (default ["/"]).
+disks = ["/", "/var"]
+
+[paths]
+# Paths whose metadata may be read. Empty (the default) means none may. An entry
+# is an absolute path (exact match) or a `re:` regular expression anchored to the
+# whole path. Only metadata is returned, never the contents. The shipped unit
+# sets ProtectHome=yes, so a path under /home or /root cannot be read.
+allow = ["/var/lib/myapp/last-run", "re:^/var/backups/[^/]+\\.dump$"]
 
 [packagekit]
 # Mutating package operations that may be performed. Empty means none may.
