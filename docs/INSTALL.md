@@ -96,6 +96,8 @@ disks = ["/"]                             # mount points to report (default ["/"
 [paths]
 allow = []                                # paths whose metadata may be read; empty (default) means
                                           # none. Absolute path or "re:<regex>". Metadata only.
+                                          # The shipped unit sets ProtectHome=yes, so a path under
+                                          # /home or /root cannot be read.
 
 [packagekit]
 allow = []                                # subset of ["refresh", "upgrade"]; empty means none;

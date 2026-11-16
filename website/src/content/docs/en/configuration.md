@@ -39,7 +39,8 @@ disks = ["/", "/var"]
 [paths]
 # Paths whose metadata may be read. Empty (the default) means none may. An entry
 # is an absolute path (exact match) or a `re:` regular expression anchored to the
-# whole path. Only metadata is returned, never the contents.
+# whole path. Only metadata is returned, never the contents. The shipped unit
+# sets ProtectHome=yes, so a path under /home or /root cannot be read.
 allow = ["/var/lib/myapp/last-run", "re:^/var/backups/[^/]+\\.dump$"]
 
 [packagekit]

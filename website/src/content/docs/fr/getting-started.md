@@ -7,12 +7,16 @@ lang: fr
 
 Gilfoyle est un serveur [MCP](https://modelcontextprotocol.io) sécurisé, écrit en Rust, qui
 expose des outils d'administration Linux à un agent IA par **SSH**. Les lectures sont
-ouvertes ; les seules mutations consistent à démarrer et arrêter des unités systemd et des
-conteneurs Docker autorisés, et à rafraîchir ou mettre à jour des paquets autorisés.
+ouvertes quand elles sont bornées, nommées et non divulgantes ; une lecture sur un espace non
+borné (un chemin) est allowlistée. Les seules mutations consistent à démarrer et arrêter des
+unités systemd et des conteneurs Docker autorisés, et à rafraîchir ou mettre à jour des
+paquets autorisés.
 
 Il est conçu pour **ne rien pouvoir exécuter**. Pas de shell, pas de passe-plat de commandes,
 pas de script : chaque outil est une fonction compilée au comportement figé, et la seule
-interaction avec l'hôte dans tout le code consiste à lire une poignée de fichiers fixes.
+interaction avec l'hôte dans tout le code consiste à lire quelques fichiers `/proc` fixes, la
+table des montages, un appel système `statvfs` en lecture seule sur les montages configurés,
+et les métadonnées des chemins déclarés par l'opérateur (jamais leur contenu).
 
 ## Deux rôles
 

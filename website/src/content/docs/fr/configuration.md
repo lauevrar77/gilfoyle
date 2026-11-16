@@ -41,7 +41,8 @@ disks = ["/", "/var"]
 # Chemins dont les métadonnées sont lisibles. Vide (par défaut) signifie aucun. Une
 # entrée est un chemin absolu (correspondance exacte) ou une expression régulière
 # `re:` ancrée au chemin entier. Seules les métadonnées sont renvoyées, jamais le
-# contenu.
+# contenu. L'unité fournie active ProtectHome=yes : un chemin sous /home ou /root
+# n'est donc pas lisible.
 allow = ["/var/lib/myapp/last-run", "re:^/var/backups/[^/]+\\.dump$"]
 
 [packagekit]

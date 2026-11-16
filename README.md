@@ -3,9 +3,10 @@
 [![CI](https://github.com/lauevrar77/gilfoyle/actions/workflows/ci.yml/badge.svg)](https://github.com/lauevrar77/gilfoyle/actions/workflows/ci.yml)
 
 A secure [MCP](https://modelcontextprotocol.io) server, written in Rust, that exposes Linux
-administration tools to an AI agent over **SSH**: reads are open, and the only mutations are
-starting and stopping allowlisted systemd units and Docker containers, and refreshing or
-upgrading allowlisted packages.
+administration tools to an AI agent over **SSH**: reads are open when they are bounded, named
+and non-disclosing (a read over an unbounded namespace, a path, is allowlisted), and the only
+mutations are starting and stopping allowlisted systemd units and Docker containers, and
+refreshing or upgrading allowlisted packages.
 
 Gilfoyle is built so that **it cannot execute anything**. There is no shell, no command
 passthrough and no scripting: every tool is a compiled function with fixed behaviour, and
@@ -159,7 +160,8 @@ disks = ["/", "/var"]
 [paths]
 # Paths whose metadata may be read. Empty (the default) means none may. An entry
 # is an absolute path (exact match) or a `re:` regular expression anchored to the
-# whole path. Only metadata is returned, never the contents.
+# whole path. Only metadata is returned, never the contents. The shipped unit
+# sets ProtectHome=yes, so a path under /home or /root cannot be read.
 allow = ["/var/lib/myapp/last-run", "re:^/var/backups/[^/]+\\.dump$"]
 
 [packagekit]

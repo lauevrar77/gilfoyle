@@ -63,7 +63,7 @@ export const en = {
     title: "You gave an AI a shell. Bold. Also dumb.",
     body: [
       "With a shell, whatever the model writes can run as a command. A prompt injection, a hallucination, a typo: it all executes.",
-      "I don't take commands. I expose a fixed list of compiled functions. Reads are open. I only change what you allowlisted: start and stop units and containers, refresh and upgrade packages. I never install or remove anything.",
+      "I don't take commands. I expose a fixed list of compiled functions. Reads are open only when they are bounded and harmless. I only change what you allowlisted: start and stop units and containers, refresh and upgrade packages. I never install or remove anything.",
     ],
     aside: "I don't trust your prompt. I trust the compiler.",
   },
