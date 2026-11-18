@@ -25,6 +25,10 @@ _Avoid_: assistant, model, bot
 One subsystem channel between a Client and a Node, carrying one MCP conversation. A connection may carry several.
 _Avoid_: connection, stream
 
+**Jump host**:
+An SSH server a Client relays through to reach a Node it cannot reach directly. It forwards bytes only, is never asked for a shell, and never terminates the session.
+_Avoid_: bastion, proxy, gateway, relay
+
 ## Host and units
 
 **Unit**:

@@ -97,13 +97,29 @@ Un chemin suggéré est `~/.config/gilfoyle/client.toml` ; passe-le avec
 ```toml
 pool_size = 4
 
+[[jumps]]
+name = "bastion"                          # optionnel : joindre des nœuds via un hôte de saut
+host = "bastion.example.com"
+port = 22
+user = "laurent"
+key = "~/.ssh/gilfoyle_bastion"           # clé privée non chiffrée, mode 0600
+host_key_fingerprint = "SHA256:..."       # issue de l'hôte de saut
+
 [[nodes]]
 label = "web1"
-host = "10.0.0.5"
+host = "10.0.0.5"                         # joint depuis l'hôte de saut, si défini
 port = 2222
 key = "~/.ssh/gilfoyle_web1"              # clé privée non chiffrée, mode 0600
 host_key_fingerprint = "SHA256:..."       # issue de `gilfoyle ssh keygen`
+jump = "bastion"                          # optionnel ; à omettre pour une connexion directe
 ```
+
+Un nœud que l'on ne peut pas joindre directement peut l'être via un **hôte de saut** : le
+client s'y connecte, ouvre un canal SSH `direct-tcpip` vers le nœud, et fait passer la session
+du nœud par ce canal (ADR 0013). L'hôte de saut doit être un sshd OpenSSH avec
+`AllowTcpForwarding` ; un nœud gilfoyle n'en est pas un, car il refuse toute demande de
+redirection. L'hôte de saut ne fait que transmettre des octets — la session vers le nœud
+reste chiffrée de bout en bout et son empreinte reste épinglée.
 
 Le client sert MCP sur stdio, maintient `pool_size` sessions par nœud, marque les nœuds
 injoignables, et réessaie les lectures (jamais les mutations) à travers les reconnexions. Un

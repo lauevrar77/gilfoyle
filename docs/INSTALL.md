@@ -151,6 +151,33 @@ key = "~/.ssh/gilfoyle_web1"
 host_key_fingerprint = "SHA256:..."       # from the node's `ssh keygen`
 ```
 
+If a node is not directly reachable, add a **jump host** and point the node at it. The jump
+host must be an OpenSSH sshd with `AllowTcpForwarding` — a gilfoyle node is not a jump host,
+it refuses forwarding. It needs its own key and its own pinned fingerprint, and the node's
+`host`/`port` are then resolved from it:
+
+```sh
+ssh-keygen -t ed25519 -N '' -f ~/.ssh/gilfoyle_bastion
+```
+
+```toml
+[[jumps]]
+name = "bastion"
+host = "bastion.example.com"
+port = 22
+user = "laurent"
+key = "~/.ssh/gilfoyle_bastion"
+host_key_fingerprint = "SHA256:..."       # the jump host's fingerprint
+
+[[nodes]]
+label = "web1"
+host = "10.0.0.5"                         # reached from the jump host
+port = 2222
+key = "~/.ssh/gilfoyle_web1"
+host_key_fingerprint = "SHA256:..."
+jump = "bastion"
+```
+
 Run it (this is what the AI client launches):
 
 ```sh

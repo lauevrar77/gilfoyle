@@ -32,10 +32,20 @@ pub async fn run(path: &Path) -> Result<(), String> {
     for node in &config.nodes {
         match node::Upstream::connect(node, config.pool_size).await {
             Ok(upstream) => {
-                tracing::info!(node = %node.label, "connected");
+                match &node.jump {
+                    Some(jump) => {
+                        tracing::info!(node = %node.label, jump = %jump.name, "connected")
+                    }
+                    None => tracing::info!(node = %node.label, "connected"),
+                }
                 upstreams.push(upstream);
             }
-            Err(error) => tracing::warn!(node = %node.label, %error, "unreachable at startup"),
+            Err(error) => match &node.jump {
+                Some(jump) => {
+                    tracing::warn!(node = %node.label, jump = %jump.name, %error, "unreachable at startup")
+                }
+                None => tracing::warn!(node = %node.label, %error, "unreachable at startup"),
+            },
         }
     }
 

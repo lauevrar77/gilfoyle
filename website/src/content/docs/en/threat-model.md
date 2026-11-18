@@ -28,6 +28,11 @@ code execution or host privileges.
   `[docker] manage_containers` tight.
 - **Auth.** Public keys only, mapped to a principal; per-key tool grants limit what a key
   can reach. The client pins host-key fingerprints, so SSH is not open to MITM.
+- **Jump hosts relay, they do not terminate.** A node reached through a `[[jumps]]` entry is
+  reached over an SSH `direct-tcpip` channel the client opens on the jump host, whose
+  fingerprint the client also pins. The session to the node stays end-to-end encrypted and
+  its per-key grants still apply; a compromised jump host can refuse service, not read or
+  forge the session (ADR 0013).
 - **Fail-closed.** No bind, no key or no host key means no start; no allowed package
   operation means no refresh or upgrade.
 
