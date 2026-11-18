@@ -58,6 +58,7 @@ fuzz:
 	$(CARGO) fuzz run meminfo_parse -- -runs=$(FUZZ_RUNS)
 	$(CARGO) fuzz run mounts_parse -- -runs=$(FUZZ_RUNS)
 	$(CARGO) fuzz run path_allowlist -- -runs=$(FUZZ_RUNS)
+	$(CARGO) fuzz run reboot_parse -- -runs=$(FUZZ_RUNS)
 
 package-release:
 	./scripts/package-release.sh

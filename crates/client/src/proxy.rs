@@ -23,10 +23,11 @@ use crate::node::Upstream;
 pub const ALL_NODES: &str = "all";
 
 /// Tools that may be fanned out across every node.
-pub const READ_TOOLS: [&str; 11] = [
+pub const READ_TOOLS: [&str; 12] = [
     "get_uptime",
     "get_load_and_memory",
     "get_disk_usage",
+    "get_reboot_status",
     "path_status",
     "list_units",
     "unit_status",
@@ -378,6 +379,7 @@ mod tests {
     #[test]
     fn read_tools_do_not_include_mutations() {
         assert!(READ_TOOLS.contains(&"get_uptime"));
+        assert!(READ_TOOLS.contains(&"get_reboot_status"));
         assert!(READ_TOOLS.contains(&"list_containers"));
         assert!(READ_TOOLS.contains(&"container_status"));
         assert!(!READ_TOOLS.contains(&"start_unit"));

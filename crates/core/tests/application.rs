@@ -3,7 +3,8 @@ use std::sync::Arc;
 use gilfoyle_core::{
     AppError, DiskAdmin, DiskError, DiskService, DiskSource, FilesystemUsage, HostAdmin,
     HostService, LoadAverage, LoadSource, Memory, MemorySource, PathAdmin, PathAllowlist,
-    PathError, PathRef, PathService, PathSource, PathStatus, SystemError,
+    PathError, PathRef, PathService, PathSource, PathStatus, RebootAdmin, RebootError,
+    RebootService, RebootSource, RebootStatus, SystemError,
 };
 
 struct FakeLoad;
@@ -83,4 +84,28 @@ fn path_service_enforces_the_allowlist() {
         service.path_status("relative").unwrap_err(),
         AppError::Domain(_)
     ));
+}
+
+struct FakeReboot(Result<RebootStatus, RebootError>);
+
+impl RebootSource for FakeReboot {
+    fn reboot_status(&self) -> Result<RebootStatus, RebootError> {
+        self.0.clone()
+    }
+}
+
+#[test]
+fn reboot_service_forwards_and_propagates_errors() {
+    let service = RebootService::new(FakeReboot(Ok(RebootStatus::not_required())));
+    assert_eq!(service.reboot_status().unwrap().required, Some(false));
+
+    let error = RebootError::Io {
+        path: "/etc/os-release".to_string(),
+        message: "permission denied".to_string(),
+    };
+    let service = RebootService::new(FakeReboot(Err(error.clone())));
+    assert_eq!(
+        service.reboot_status().unwrap_err(),
+        AppError::Reboot(error)
+    );
 }

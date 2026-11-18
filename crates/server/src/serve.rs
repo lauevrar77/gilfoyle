@@ -8,10 +8,11 @@ use std::time::Duration;
 use gilfoyle_core::{
     ContainerCatalog, ContainerControl, DiskAdmin, DiskService, DockerAdmin, DockerService,
     HostAdmin, HostService, PackageAdmin, PackageManager, PackageService, PathAdmin, PathService,
-    ServiceCatalog, ServiceControl, SystemAdmin, SystemService, SystemdAdmin, SystemdService,
+    RebootAdmin, RebootService, ServiceCatalog, ServiceControl, SystemAdmin, SystemService,
+    SystemdAdmin, SystemdService,
 };
 use gilfoyle_docker::LazyDocker;
-use gilfoyle_host::{DiskProbe, ProcLoad, ProcMeminfo};
+use gilfoyle_host::{DiskProbe, ProcLoad, ProcMeminfo, RebootProbe};
 use gilfoyle_packagekit::{
     DEFAULT_CALL_TIMEOUT, DEFAULT_LIMIT, DEFAULT_POLL_TIMEOUT, LazyPackagekit,
 };
@@ -28,6 +29,7 @@ pub struct ServiceBuilder {
     admin: Arc<dyn SystemAdmin>,
     host: Arc<dyn HostAdmin>,
     disk: Arc<dyn DiskAdmin>,
+    reboot: Arc<dyn RebootAdmin>,
     paths: Arc<dyn PathAdmin>,
     systemd: Arc<dyn SystemdAdmin>,
     packages: Arc<dyn PackageAdmin>,
@@ -46,6 +48,7 @@ impl ServiceFactory for ServiceBuilder {
             Arc::clone(&self.admin),
             Arc::clone(&self.host),
             Arc::clone(&self.disk),
+            Arc::clone(&self.reboot),
             Arc::clone(&self.paths),
             Arc::clone(&self.systemd),
             Arc::clone(&self.packages),
@@ -64,6 +67,8 @@ pub async fn run(config: Config) -> Result<(), String> {
     let disk: Arc<dyn DiskAdmin> = Arc::new(DiskService::new(Arc::new(DiskProbe::new(
         config.mount_points.clone(),
     ))));
+
+    let reboot: Arc<dyn RebootAdmin> = Arc::new(RebootService::new(RebootProbe::new()));
 
     let paths: Arc<dyn PathAdmin> = Arc::new(PathService::new(
         Arc::new(PathProbe),
@@ -133,6 +138,7 @@ pub async fn run(config: Config) -> Result<(), String> {
         admin,
         host,
         disk,
+        reboot,
         paths,
         systemd,
         packages,

@@ -7,10 +7,10 @@ use crate::{
     ContainerCatalog, ContainerControl, ContainerFilter, ContainerRef, ContainerStatus, DiskAdmin,
     DiskSource, DockerAdmin, FilesystemUsage, HostAdmin, LoadAndMemory, LoadSource, MemorySource,
     PackageAdmin, PackageAllowlist, PackageError, PackageFilter, PackageList, PackageManager,
-    PackageOperation, PathAdmin, PathAllowlist, PathRef, PathSource, PathStatus, RefreshReport,
-    ServiceCatalog, ServiceControl, SystemAdmin, SystemdAdmin, Unit, UnitActionOutcome, UnitFilter,
-    UnitName, UnitStatus, UpdateFilter, UpdateList, UpgradePlan, UpgradeReport, UptimeReport,
-    UptimeSource,
+    PackageOperation, PathAdmin, PathAllowlist, PathRef, PathSource, PathStatus, RebootAdmin,
+    RebootSource, RebootStatus, RefreshReport, ServiceCatalog, ServiceControl, SystemAdmin,
+    SystemdAdmin, Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus, UpdateFilter,
+    UpdateList, UpgradePlan, UpgradeReport, UptimeReport, UptimeSource,
 };
 
 /// Application service implementing the host metrics driving port.
@@ -102,6 +102,27 @@ impl<S: UptimeSource> SystemAdmin for SystemService<S> {
             uptime_seconds: uptime.as_seconds(),
             uptime_human: uptime.human(),
         })
+    }
+}
+
+/// Application service implementing the reboot driving port on top of a driven port.
+///
+/// Generic over the [`RebootSource`] so it is zero-cost in production and
+/// trivially testable with a fake source.
+pub struct RebootService<S: RebootSource> {
+    source: S,
+}
+
+impl<S: RebootSource> RebootService<S> {
+    /// Build a service backed by `source`.
+    pub fn new(source: S) -> Self {
+        Self { source }
+    }
+}
+
+impl<S: RebootSource> RebootAdmin for RebootService<S> {
+    fn reboot_status(&self) -> Result<RebootStatus, AppError> {
+        Ok(self.source.reboot_status()?)
     }
 }
 

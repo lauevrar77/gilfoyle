@@ -42,6 +42,7 @@ struct SharedUnit {
     sub_state: String,
     can_start: bool,
     can_stop: bool,
+    need_daemon_reload: bool,
     main_pid: u32,
     result: String,
     is_service: bool,
@@ -57,6 +58,7 @@ impl SharedUnit {
             sub_state: "running".to_string(),
             can_start: true,
             can_stop: true,
+            need_daemon_reload: false,
             main_pid: 4321,
             result: "success".to_string(),
             is_service: true,
@@ -75,6 +77,7 @@ impl SharedUnit {
             sub_state: "listening".to_string(),
             can_start: false,
             can_stop: false,
+            need_daemon_reload: true,
             main_pid: 0,
             result: String::new(),
             is_service: false,
@@ -140,6 +143,11 @@ impl MockUnit {
     #[zbus(property)]
     fn can_stop(&self) -> bool {
         self.unit.can_stop
+    }
+
+    #[zbus(property)]
+    fn need_daemon_reload(&self) -> bool {
+        self.unit.need_daemon_reload
     }
 
     #[zbus(property)]
@@ -403,6 +411,7 @@ async fn reports_service_status() {
     assert_eq!(status.active_state, "inactive");
     assert_eq!(status.unit_file_state, Some("enabled".to_string()));
     assert_eq!(status.can_start, Some(true));
+    assert_eq!(status.need_daemon_reload, Some(false));
     assert_eq!(status.main_pid, Some(4321));
     assert_eq!(status.result, Some("success".to_string()));
     assert_eq!(
@@ -425,6 +434,7 @@ async fn reports_non_service_status_without_service_fields() {
         .unwrap();
     assert_eq!(status.main_pid, None);
     assert_eq!(status.result, None);
+    assert_eq!(status.need_daemon_reload, Some(true));
     assert_eq!(status.timestamps.exec_main_start, None);
 }
 

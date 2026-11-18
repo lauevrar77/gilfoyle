@@ -9,9 +9,9 @@ use std::sync::Arc;
 use gilfoyle_core::{
     ContainerActionOutcome, ContainerFilter, ContainerList, ContainerState, ContainerStatus,
     DiskAdmin, DiskUsage, DockerAdmin, HostAdmin, LoadAndMemory, PackageAdmin, PackageFilter,
-    PackageList, PathAdmin, PathStatus, RefreshReport, Severity, SystemAdmin, SystemdAdmin,
-    UnitActionOutcome, UnitFilter, UnitList, UnitStatus, UnitType, UpdateFilter, UpdateList,
-    UpgradePlan, UpgradeReport, UptimeReport,
+    PackageList, PathAdmin, PathStatus, RebootAdmin, RebootStatus, RefreshReport, Severity,
+    SystemAdmin, SystemdAdmin, UnitActionOutcome, UnitFilter, UnitList, UnitStatus, UnitType,
+    UpdateFilter, UpdateList, UpgradePlan, UpgradeReport, UptimeReport,
 };
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::tool::ToolCallContext;
@@ -192,6 +192,7 @@ pub struct GilfoyleServer {
     admin: Arc<dyn SystemAdmin>,
     host: Arc<dyn HostAdmin>,
     disk: Arc<dyn DiskAdmin>,
+    reboot: Arc<dyn RebootAdmin>,
     paths: Arc<dyn PathAdmin>,
     systemd: Arc<dyn SystemdAdmin>,
     packages: Arc<dyn PackageAdmin>,
@@ -208,6 +209,7 @@ impl GilfoyleServer {
         admin: Arc<dyn SystemAdmin>,
         host: Arc<dyn HostAdmin>,
         disk: Arc<dyn DiskAdmin>,
+        reboot: Arc<dyn RebootAdmin>,
         paths: Arc<dyn PathAdmin>,
         systemd: Arc<dyn SystemdAdmin>,
         packages: Arc<dyn PackageAdmin>,
@@ -218,6 +220,7 @@ impl GilfoyleServer {
             admin,
             host,
             disk,
+            reboot,
             paths,
             systemd,
             packages,
@@ -263,6 +266,18 @@ impl GilfoyleServer {
     async fn get_disk_usage(&self) -> Result<Json<DiskUsage>, String> {
         let filesystems = self.disk.disk_usage().map_err(|error| error.to_string())?;
         Ok(Json(DiskUsage { filesystems }))
+    }
+
+    /// Report whether the host needs a reboot.
+    #[tool(
+        description = "Report whether the host needs a reboot (from /run/reboot-required on Debian-family hosts; unknown elsewhere)",
+        annotations(read_only_hint = true)
+    )]
+    async fn get_reboot_status(&self) -> Result<Json<RebootStatus>, String> {
+        self.reboot
+            .reboot_status()
+            .map(Json)
+            .map_err(|error| error.to_string())
     }
 
     /// Return the metadata of one allowed path.
@@ -508,7 +523,7 @@ impl GilfoyleServer {
 
 #[tool_handler(
     name = "gilfoyle",
-    instructions = "Administer a Linux host: read the uptime, load average, memory and disk usage, inspect the metadata of allowed paths, inspect systemd units, start or stop allowlisted units, inspect Docker containers and start, stop or restart allowlisted ones, and inspect or upgrade packages (never install or remove)."
+    instructions = "Administer a Linux host: read the uptime, load average, memory and disk usage, whether a reboot is pending, inspect the metadata of allowed paths, inspect systemd units, start or stop allowlisted units, inspect Docker containers and start, stop or restart allowlisted ones, and inspect or upgrade packages (never install or remove)."
 )]
 impl ServerHandler for GilfoyleServer {
     async fn list_tools(
