@@ -95,13 +95,29 @@ A suggested path is `~/.config/gilfoyle/client.toml`; pass it with
 ```toml
 pool_size = 4
 
+[[jumps]]
+name = "bastion"                          # optional: reach nodes through a jump host
+host = "bastion.example.com"
+port = 22
+user = "laurent"
+key = "~/.ssh/gilfoyle_bastion"           # unencrypted private key, mode 0600
+host_key_fingerprint = "SHA256:..."       # from the jump host
+
 [[nodes]]
 label = "web1"
-host = "10.0.0.5"
+host = "10.0.0.5"                         # reached from the jump host, when one is set
 port = 2222
 key = "~/.ssh/gilfoyle_web1"              # unencrypted private key, mode 0600
 host_key_fingerprint = "SHA256:..."       # from `gilfoyle ssh keygen`
+jump = "bastion"                          # optional; omit for a direct connection
 ```
+
+A node that is not directly reachable can be reached through a **jump host**: the client
+connects to it, opens an SSH `direct-tcpip` channel to the node, and runs the node's session
+over it (ADR 0013). The jump host must be an OpenSSH sshd with `AllowTcpForwarding`; a
+gilfoyle node is not a jump host, because it refuses every forwarding request. The jump host
+only relays bytes — the session to the node stays end-to-end encrypted and its fingerprint
+is still pinned.
 
 The client serves MCP on stdio, holds `pool_size` sessions per node, marks unreachable
 nodes, and retries reads (never mutations) across reconnections. A node that is down at

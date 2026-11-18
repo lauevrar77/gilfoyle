@@ -225,6 +225,22 @@ async fn refuses_a_non_mcp_subsystem() {
     );
 }
 
+// A node is not a jump host: it refuses every forwarding request, so it can never relay.
+#[tokio::test]
+async fn refuses_a_direct_tcpip_channel() {
+    let client_key = key();
+    let addr = start(authorized(&client_key)).await;
+    let (handle, _client) = connect(addr, client_key).await;
+
+    let result = handle
+        .channel_open_direct_tcpip("127.0.0.1", 1234, "127.0.0.1", 0)
+        .await;
+    assert!(
+        result.is_err(),
+        "a gilfoyle node must refuse a forwarding channel"
+    );
+}
+
 /// Wait until `recorded` has at least `count` entries, or time out.
 async fn wait_for(recorded: &Arc<Mutex<Vec<russh::ChannelId>>>, count: usize) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);

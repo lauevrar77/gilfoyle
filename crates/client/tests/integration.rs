@@ -1,11 +1,19 @@
 //! End-to-end: the real client connects to a real node over SSH and calls a tool.
 
-use gilfoyle_client::config::NodeConfig;
+use std::net::SocketAddr;
+use std::sync::Arc;
+
+use gilfoyle_client::ClientError;
+use gilfoyle_client::config::{JumpConfig, NodeConfig};
 use gilfoyle_client::node::Upstream;
 use gilfoyle_ssh::adapter::{Limits, ServiceFactory, SshServer};
 use gilfoyle_ssh::keys::{AuthorizedKey, AuthorizedKeys};
 use gilfoyle_ssh::policy::Principal;
+use gilfoyle_ssh::russh::Channel;
 use gilfoyle_ssh::russh::keys::{Algorithm, PrivateKey};
+use gilfoyle_ssh::russh::server::{
+    Auth, ChannelOpenHandle, Msg, Server as _, Session, VerifiedPublicKey,
+};
 use gilfoyle_ssh::{SUBSYSTEM, hostkey};
 use rmcp::handler::server::wrapper::{Json, Parameters};
 use rmcp::model::CallToolRequestParams;
@@ -99,6 +107,79 @@ async fn start_node() -> (u16, String, std::path::PathBuf) {
     (port, fingerprint, key_path)
 }
 
+/// A minimal SSH server that accepts `direct-tcpip` and bridges it to a TCP target.
+struct ForwardServer;
+
+impl gilfoyle_ssh::russh::server::Server for ForwardServer {
+    type Handler = ForwardConnection;
+
+    fn new_client(&mut self, _peer: Option<SocketAddr>) -> ForwardConnection {
+        ForwardConnection
+    }
+}
+
+struct ForwardConnection;
+
+impl gilfoyle_ssh::russh::server::Handler for ForwardConnection {
+    type Error = gilfoyle_ssh::russh::Error;
+
+    async fn auth_publickey(
+        &mut self,
+        _user: &str,
+        _key: VerifiedPublicKey<'_>,
+    ) -> Result<Auth, Self::Error> {
+        Ok(Auth::Accept)
+    }
+
+    async fn channel_open_direct_tcpip(
+        &mut self,
+        channel: Channel<Msg>,
+        host_to_connect: &str,
+        port_to_connect: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: ChannelOpenHandle,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        reply.accept().await;
+        let target = format!("{host_to_connect}:{port_to_connect}");
+        tokio::spawn(async move {
+            let Ok(mut socket) = tokio::net::TcpStream::connect(target).await else {
+                return;
+            };
+            let mut stream = channel.into_stream();
+            let _ = tokio::io::copy_bidirectional(&mut socket, &mut stream).await;
+        });
+        Ok(())
+    }
+}
+
+/// Start a forwarding server and return its address and host fingerprint.
+async fn start_forward_server() -> (u16, String) {
+    let host = key();
+    let fingerprint = hostkey::fingerprint(host.public_key());
+    let config = Arc::new(gilfoyle_ssh::russh::server::Config {
+        keys: vec![host],
+        ..Default::default()
+    });
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let mut server = ForwardServer;
+        let _ = server.run_on_socket(config, &listener).await;
+    });
+
+    (port, fingerprint)
+}
+
+/// A jump key written to disk, as the client needs a path.
+fn jump_key() -> std::path::PathBuf {
+    let dir = temp_dir("jump");
+    let path = dir.join("id_ed25519");
+    hostkey::write(&key(), &path).unwrap();
+    path
+}
+
 fn node_config(port: u16, fingerprint: String, key_path: std::path::PathBuf) -> NodeConfig {
     NodeConfig {
         label: "node1".to_string(),
@@ -106,6 +187,7 @@ fn node_config(port: u16, fingerprint: String, key_path: std::path::PathBuf) -> 
         port,
         key: key_path,
         host_key_fingerprint: fingerprint,
+        jump: None,
     }
 }
 
@@ -138,6 +220,82 @@ async fn refuses_a_mismatched_host_key() {
     assert!(
         result.is_err(),
         "a mismatched host key must fail the connection"
+    );
+}
+
+#[tokio::test]
+async fn connects_through_a_jump_host() {
+    let (node_port, node_fingerprint, node_key) = start_node().await;
+    let (jump_port, jump_fingerprint) = start_forward_server().await;
+
+    let mut node = node_config(node_port, node_fingerprint, node_key);
+    node.jump = Some(JumpConfig {
+        name: "bastion".to_string(),
+        host: "127.0.0.1".to_string(),
+        port: jump_port,
+        user: "operator".to_string(),
+        key: jump_key(),
+        host_key_fingerprint: jump_fingerprint,
+    });
+
+    let upstream = Upstream::connect(&node, 1).await.unwrap();
+
+    let names: Vec<String> = upstream
+        .tools()
+        .iter()
+        .map(|tool| tool.name.to_string())
+        .collect();
+    assert!(names.contains(&"echo".to_string()), "got {names:?}");
+
+    let mut params = CallToolRequestParams::new("echo".to_string());
+    params.arguments = json!({ "value": "via-jump" }).as_object().cloned();
+    let result = upstream.peer().call_tool(params).await.unwrap();
+    assert_eq!(result.structured_content.unwrap()["value"], "via-jump");
+}
+
+#[tokio::test]
+async fn refuses_a_mismatched_jump_host_key() {
+    let (node_port, node_fingerprint, node_key) = start_node().await;
+    let (jump_port, _jump_fingerprint) = start_forward_server().await;
+
+    let mut node = node_config(node_port, node_fingerprint, node_key);
+    node.jump = Some(JumpConfig {
+        name: "bastion".to_string(),
+        host: "127.0.0.1".to_string(),
+        port: jump_port,
+        user: "operator".to_string(),
+        key: jump_key(),
+        host_key_fingerprint: "SHA256:not-the-right-key".to_string(),
+    });
+
+    let error = Upstream::connect(&node, 1).await;
+    assert!(
+        matches!(error, Err(ClientError::Jump { .. })),
+        "expected a jump error"
+    );
+}
+
+#[tokio::test]
+async fn a_gilfoyle_node_refuses_to_be_a_jump_host() {
+    let (node_port, node_fingerprint, node_key) = start_node().await;
+    // A second gilfoyle node, used as the "jump host": it authenticates the client but
+    // refuses the `direct-tcpip` channel, so it cannot relay.
+    let (jump_port, jump_fingerprint, jump_key) = start_node().await;
+
+    let mut node = node_config(node_port, node_fingerprint, node_key);
+    node.jump = Some(JumpConfig {
+        name: "gilfoyle".to_string(),
+        host: "127.0.0.1".to_string(),
+        port: jump_port,
+        user: "operator".to_string(),
+        key: jump_key,
+        host_key_fingerprint: jump_fingerprint,
+    });
+
+    let error = Upstream::connect(&node, 1).await;
+    assert!(
+        matches!(error, Err(ClientError::Jump { .. })),
+        "expected a jump error"
     );
 }
 

@@ -122,7 +122,8 @@ If the tool is a read, add it to `gilfoyle-client`'s read set so it can be fanne
 - `docs/adr/` — decisions worth remembering (0005/0006 for the SSH transport and key
   authentication; 0007–0009 for the PackageKit surface and its no-install guarantee; 0010 for
   the Docker socket, its closed operation set and its regex allowlist; 0011 for the read-only
-  `statvfs` call; 0012 for the open-or-allowlisted read classification).
+  `statvfs` call; 0012 for the open-or-allowlisted read classification; 0013 for reaching
+  nodes through a jump host).
 - `website/` — the bilingual marketing + docs site; keep it in sync (see above).
 - `Makefile` — every task; run `make help`.
 - `fuzz/` — an independent workspace; `make fuzz` runs it on nightly with ASan.

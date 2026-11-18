@@ -129,6 +129,7 @@ async fn start_node() -> NodeConfig {
         port,
         key: key_path,
         host_key_fingerprint: fingerprint,
+        jump: None,
     }
 }
 

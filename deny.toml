@@ -3,7 +3,11 @@ targets = [{ triple = "x86_64-unknown-linux-gnu" }]
 
 [advisories]
 version = 2
-ignore = []
+# RUSTSEC-2026-0543: `chrono` is unmaintained and has no patched version. It is a
+# non-optional dependency of `rmcp` (and of `schemars` via its `chrono04` feature), so it
+# cannot be removed from the tree; gilfoyle only uses it to format RFC 3339 timestamps.
+# Drop this ignore once `rmcp` stops depending on `chrono` (see issue #7).
+ignore = ["RUSTSEC-2026-0543"]
 
 [licenses]
 version = 2

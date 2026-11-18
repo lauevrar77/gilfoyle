@@ -222,13 +222,29 @@ A suggested path is `~/.config/gilfoyle/client.toml`; pass it to the client with
 ```toml
 pool_size = 4
 
+[[jumps]]
+name = "bastion"                          # optional: reach nodes through a jump host
+host = "bastion.example.com"
+port = 22
+user = "laurent"
+key = "~/.ssh/gilfoyle_bastion"           # unencrypted private key, mode 0600
+host_key_fingerprint = "SHA256:..."       # from the jump host
+
 [[nodes]]
 label = "web1"
-host = "10.0.0.5"
+host = "10.0.0.5"                         # reached from the jump host, when one is set
 port = 2222
 key = "~/.ssh/gilfoyle_web1"              # unencrypted private key, mode 0600
 host_key_fingerprint = "SHA256:..."       # from `gilfoyle ssh keygen`
+jump = "bastion"                          # optional; omit for a direct connection
 ```
+
+A node that is not directly reachable can be reached through a **jump host**: the client
+connects to it, opens an SSH `direct-tcpip` channel to the node, and runs the node's session
+over it (ADR 0013). The jump host must be an OpenSSH sshd with `AllowTcpForwarding`; a
+gilfoyle node is not a jump host, because it refuses every forwarding request. The jump host
+only relays bytes — the session to the node stays end-to-end encrypted and its fingerprint
+is still pinned.
 
 Run the client with `gilfoyle client --config <path>` (or `GILFOYLE_CLIENT_CONFIG`). It
 serves MCP on stdio, holds `pool_size` sessions per node, marks unreachable nodes, and
@@ -440,6 +456,11 @@ must not gain code execution or host privileges.
   proxy) and keep `[docker] manage_containers` tight.
 - **Auth.** Public keys only, mapped to a principal; per-key tool grants limit what a key
   can reach. The client pins host-key fingerprints, so SSH is not open to MITM.
+- **Jump hosts relay, they do not terminate.** A node reached through a `[[jumps]]` entry is
+  reached over an SSH `direct-tcpip` channel the client opens on the jump host, whose
+  fingerprint the client also pins. The session to the node stays end-to-end encrypted and
+  its per-key grants still apply; a compromised jump host can refuse service, not read or
+  forge the session (ADR 0013).
 - **Fail-closed.** No bind, no key or no host key means no start; no allowed package
   operation means no refresh or upgrade.
 

@@ -18,6 +18,12 @@ use crate::error::ClientError;
 /// Timeout for one MCP session handshake (an SSH subsystem request plus initialize).
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Timeout for reaching a jump host and opening the forwarding channel to a node.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The originator address reported on a forwarding channel; gilfoyle does not expose it.
+const ORIGINATOR: &str = "gilfoyle-client";
+
 /// The upstream MCP client handler; the default implementation is enough.
 #[derive(Clone)]
 pub struct UpstreamClient;
@@ -50,6 +56,8 @@ pub struct Upstream {
     /// The node label.
     pub label: String,
     _handle: Handle<Pinned>,
+    /// The jump host's session, kept alive because the node's transport rides on it.
+    _jump: Option<Handle<Pinned>>,
     _services: Vec<RunningService<RoleClient, UpstreamClient>>,
     peers: Vec<Peer<RoleClient>>,
     next: AtomicUsize,
@@ -64,16 +72,7 @@ impl Upstream {
             cause: error.to_string(),
         })?;
 
-        let config = Arc::new(russh::client::Config::default());
-        let mut handle = russh::client::connect(
-            config,
-            (node.host.as_str(), node.port),
-            Pinned {
-                expected: node.host_key_fingerprint.clone(),
-            },
-        )
-        .await
-        .map_err(|error| node_error(&node.label, error))?;
+        let (mut handle, jump) = open_session(node).await?;
 
         let auth = handle
             .authenticate_publickey(
@@ -126,6 +125,7 @@ impl Upstream {
         Ok(Self {
             label: node.label.clone(),
             _handle: handle,
+            _jump: jump,
             _services: services,
             peers,
             next: AtomicUsize::new(0),
@@ -145,9 +145,110 @@ impl Upstream {
     }
 }
 
+/// Open the SSH session to the node, directly or through a jump host.
+///
+/// When a jump host is used, the returned handle must be kept alive for as long as the
+/// node's sessions live: the node's transport is a `direct-tcpip` channel of that
+/// connection. The jump host only relays bytes, so the node's session stays end-to-end
+/// encrypted and its host key is pinned as usual.
+async fn open_session(
+    node: &NodeConfig,
+) -> Result<(Handle<Pinned>, Option<Handle<Pinned>>), ClientError> {
+    let Some(jump) = &node.jump else {
+        let handle = russh::client::connect(
+            Arc::new(russh::client::Config::default()),
+            (node.host.as_str(), node.port),
+            Pinned {
+                expected: node.host_key_fingerprint.clone(),
+            },
+        )
+        .await
+        .map_err(|error| node_error(&node.label, error))?;
+        return Ok((handle, None));
+    };
+
+    let key = PrivateKey::read_openssh_file(&jump.key).map_err(|error| ClientError::Key {
+        path: jump.key.display().to_string(),
+        cause: error.to_string(),
+    })?;
+
+    let mut jump_handle = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        russh::client::connect(
+            Arc::new(russh::client::Config::default()),
+            (jump.host.as_str(), jump.port),
+            Pinned {
+                expected: jump.host_key_fingerprint.clone(),
+            },
+        ),
+    )
+    .await
+    .map_err(|_| jump_error(&jump.name, "connection timed out"))?
+    .map_err(|error| jump_error(&jump.name, error))?;
+
+    let auth = jump_handle
+        .authenticate_publickey(
+            jump.user.clone(),
+            PrivateKeyWithHashAlg::new(Arc::new(key), None),
+        )
+        .await
+        .map_err(|error| jump_error(&jump.name, error))?;
+    if !auth.success() {
+        return Err(jump_error(
+            &jump.name,
+            "public-key authentication was rejected",
+        ));
+    }
+
+    let channel = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        jump_handle.channel_open_direct_tcpip(
+            node.host.clone(),
+            u32::from(node.port),
+            ORIGINATOR,
+            0,
+        ),
+    )
+    .await
+    .map_err(|_| jump_error(&jump.name, "opening the forwarding channel timed out"))?
+    .map_err(|error| {
+        jump_error(
+            &jump.name,
+            format!(
+                "could not open a forwarding channel to {}:{} (is the jump host an \
+                 OpenSSH sshd with AllowTcpForwarding?): {error}",
+                node.host, node.port
+            ),
+        )
+    })?;
+
+    let handle = tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        russh::client::connect_stream(
+            Arc::new(russh::client::Config::default()),
+            channel.into_stream(),
+            Pinned {
+                expected: node.host_key_fingerprint.clone(),
+            },
+        ),
+    )
+    .await
+    .map_err(|_| node_error(&node.label, "connection timed out"))?
+    .map_err(|error| node_error(&node.label, error))?;
+
+    Ok((handle, Some(jump_handle)))
+}
+
 fn node_error(label: &str, error: impl std::fmt::Display) -> ClientError {
     ClientError::Node {
         label: label.to_string(),
+        cause: error.to_string(),
+    }
+}
+
+fn jump_error(name: &str, error: impl std::fmt::Display) -> ClientError {
+    ClientError::Jump {
+        name: name.to_string(),
         cause: error.to_string(),
     }
 }

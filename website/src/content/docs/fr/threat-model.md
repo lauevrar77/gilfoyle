@@ -31,6 +31,11 @@ ni exécution de code ni privilèges sur l'hôte.
 - **Auth.** Clés publiques uniquement, associées à un principal ; les autorisations par clé
   limitent ce qu'une clé peut atteindre. Le client épingle les empreintes de clés d'hôte, donc
   SSH n'est pas ouvert au MITM.
+- **Les hôtes de saut relaient, ils ne terminent pas.** Un nœud joint via une entrée
+  `[[jumps]]` l'est par un canal SSH `direct-tcpip` que le client ouvre sur l'hôte de saut,
+  dont il épingle aussi l'empreinte. La session vers le nœud reste chiffrée de bout en bout et
+  ses autorisations par clé s'appliquent toujours ; un hôte de saut compromis peut refuser le
+  service, pas lire ni forger la session (ADR 0013).
 - **Refus par défaut.** Pas de bind, pas de clé ou pas de clé d'hôte signifie pas de démarrage ;
   aucune opération paquet autorisée signifie aucun rafraîchissement ni mise à niveau.
 

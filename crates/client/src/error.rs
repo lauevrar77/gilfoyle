@@ -32,4 +32,12 @@ pub enum ClientError {
         /// The underlying error.
         cause: String,
     },
+    /// A jump host could not be reached or did not relay the connection.
+    #[error("jump `{name}`: {cause}")]
+    Jump {
+        /// The jump name.
+        name: String,
+        /// The underlying error.
+        cause: String,
+    },
 }

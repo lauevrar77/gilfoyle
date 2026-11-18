@@ -479,6 +479,8 @@ export const fr: Dict = {
     nodeB: "hôte B",
     legend: "MCP via stdio",
     legendSsh: "SSH · sous-système gilfoyle-mcp",
+    jumpNote:
+      "Un nœud que le client ne peut pas joindre directement peut l'être via un hôte de saut : le client relaie par un bastion OpenSSH sur un canal de redirection SSH. Le bastion ne fait que transmettre des octets ; la session vers le nœud reste chiffrée de bout en bout et son empreinte reste épinglée.",
   },
   architecture: {
     index: "09",

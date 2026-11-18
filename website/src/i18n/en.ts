@@ -477,6 +477,8 @@ export const en = {
     nodeB: "host B",
     legend: "MCP over stdio",
     legendSsh: "SSH · gilfoyle-mcp subsystem",
+    jumpNote:
+      "A node the client cannot reach directly can be reached through a jump host: the client relays through an OpenSSH bastion over an SSH forwarding channel. The bastion only forwards bytes; the session to the node stays end-to-end encrypted and its fingerprint is still pinned.",
   },
   architecture: {
     index: "09",
