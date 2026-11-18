@@ -18,7 +18,8 @@ code execution or host privileges.
   the whole filesystem. So a read is open only when it is bounded, named and non-disclosing;
   `path_status` is allowlisted (`[paths] allow`, empty by default), returns metadata and
   never contents, does not follow the final path component, and reports a real error — not
-  "absent" — on anything but `ENOENT`.
+  "absent" — on anything but `ENOENT`. The other reads touch a fixed, well-known set of files
+  (`/proc`, `/etc/os-release`, the reboot markers under `/run`) and return no file contents.
 - **No install, no remove, by construction.** The package operation vocabulary is a closed
   enum with no install/remove variant; upgrades carry `ONLY_TRUSTED`, and a plan that would
   install or remove a package is refused. Docker has no create or remove operation at all.
@@ -43,6 +44,8 @@ code execution or host privileges.
 - OpenSSH certificates are not supported.
 - `path_status` discloses metadata (existence, size, owner, times) for the declared paths;
   this is deliberate, bounded by `[paths] allow`, and off by default.
+- `get_reboot_status` discloses the host's distribution identity and reboot state — that is
+  the point of the tool — and reports `null` on hosts whose mechanism gilfoyle does not know.
 
 The SSH transport adds a pre-authentication parser surface and a C crypto backend (`ring`) —
 a deliberate trade.

@@ -75,7 +75,7 @@ export const en = {
     doTitle: "what I do",
     refuseTitle: "what I refuse",
     do: [
-      { label: "read", note: "uptime, load, memory, disk, units, containers, packages." },
+      { label: "read", note: "uptime, load, memory, disk, reboot, units, containers, packages." },
       {
         label: "start / stop / restart",
         note: "only the units and containers you allowlisted",
@@ -269,7 +269,7 @@ export const en = {
       },
     ],
     footnote:
-      "I read a few /proc files, the mount table, one read-only statvfs call, and the metadata of the paths you declare. systemd and PackageKit go through the system bus and polkit decides. Docker goes through its socket, with no polkit.",
+      "I read a few /proc files, the mount table, /etc/os-release and the reboot markers under /run, one read-only statvfs call, and the metadata of the paths you declare. systemd and PackageKit go through the system bus and polkit decides. Docker goes through its socket, with no polkit.",
     docker: {
       title: "Docker has no polkit",
       body: "The Docker socket is as good as root: a privileged container can mount the host. Put a socket proxy in front of it that only allows the endpoints I use, instead of adding my user to the docker group. manage_containers is empty by default, and the action runs on the resolved container id, so a rename can't redirect it.",
@@ -291,7 +291,7 @@ export const en = {
       },
       {
         title: "Fuzzing, under ASan",
-        body: "Twelve targets cover the parsers: uptime, load average, memory, mounts, authorized keys, config, client config, unit names, package ids, container refs, the container allowlist and the path allowlist. They run on nightly with AddressSanitizer.",
+        body: "Thirteen targets cover the parsers: uptime, load average, memory, mounts, authorized keys, config, client config, unit names, package ids, container refs, the container allowlist, the path allowlist and the reboot markers. They run on nightly with AddressSanitizer.",
       },
       {
         title: "Supply chain",
@@ -322,7 +322,7 @@ export const en = {
     groups: [
       {
         name: "Host",
-        note: "/proc, and a read-only statvfs call",
+        note: "/proc, /etc/os-release, /run, and a read-only statvfs call",
         items: [
           {
             name: "get_uptime",
@@ -340,6 +340,12 @@ export const en = {
             name: "get_disk_usage",
             args: "—",
             effect: "usage of the configured mount points",
+            kind: "read",
+          },
+          {
+            name: "get_reboot_status",
+            args: "—",
+            effect: "whether a reboot is pending (Debian-family; null elsewhere)",
             kind: "read",
           },
         ],
@@ -369,7 +375,7 @@ export const en = {
           {
             name: "unit_status",
             args: "name",
-            effect: "detailed status of one unit",
+            effect: "detailed status of one unit, including whether a daemon reload is needed",
             kind: "read",
           },
           {
@@ -491,7 +497,7 @@ export const en = {
     crates: [
       { name: "gilfoyle-core", role: "domain types, ports, use cases", io: "none" },
       { name: "gilfoyle-system", role: "driven adapter (host uptime)", io: "read-only" },
-      { name: "gilfoyle-host", role: "driven adapter (load, memory, disk usage)", io: "read-only" },
+      { name: "gilfoyle-host", role: "driven adapter (load, memory, disk usage, reboot)", io: "read-only" },
       { name: "gilfoyle-path", role: "driven adapter (path metadata)", io: "read-only" },
       { name: "gilfoyle-systemd", role: "driven adapter (systemd over D-Bus)", io: "system bus" },
       { name: "gilfoyle-packagekit", role: "driven adapter (PackageKit over D-Bus)", io: "system bus" },

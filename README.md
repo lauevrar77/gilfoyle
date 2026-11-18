@@ -10,15 +10,17 @@ refreshing or upgrading allowlisted packages.
 
 Gilfoyle is built so that **it cannot execute anything**. There is no shell, no command
 passthrough and no scripting: every tool is a compiled function with fixed behaviour, and
-the only host interaction in the whole codebase is reading a few fixed files, the mount
-table, one read-only `statvfs` syscall over the configured mounts, and the metadata of the
-paths the operator declared (never their contents).
+the only host interaction in the whole codebase is reading a few fixed files under `/proc`
+(`uptime`, `loadavg`, `meminfo`, `mounts`), the mount table, `/etc/os-release` and the
+reboot-required markers under `/run`, one read-only `statvfs` syscall over the configured
+mounts, and the metadata of the paths the operator declared (never their contents).
 
 SSH is used purely as a **protocol**: the server serves an MCP subsystem and refuses every
 `shell`, `exec`, `pty` and forwarding request. A connection can never obtain a shell.
 
 > Status: early. Tools so far: `get_uptime`, `get_load_and_memory`, `get_disk_usage`,
-> `path_status`; systemd units (`list_units`, `unit_status`, `start_unit`, `stop_unit`);
+> `get_reboot_status`, `path_status`; systemd units (`list_units`, `unit_status`,
+> `start_unit`, `stop_unit`);
 > Docker containers (`list_containers`, `container_status`, `start_container`,
 > `stop_container`, `restart_container`); packages (`list_packages`, `list_updates`,
 > `preview_upgrade`, `refresh_package_cache`, `upgrade_packages`).
@@ -46,7 +48,8 @@ AI agent ──MCP(stdio)──▶ gilfoyle client ──SSH──▶ gilfoyle n
   makes any reference to `std::process::Command` a **compile error**.
 - systemd and PackageKit are reached over **in-process D-Bus**, never by spawning
   `systemctl` or `apt`; Docker is reached over its **UNIX socket**, never by spawning
-  `docker`; disk usage is read with the **read-only `statvfs` syscall**.
+  `docker`; disk usage is read with the **read-only `statvfs` syscall**, and reboot state
+  from fixed markers under `/run`.
 - Reads are **open** when they are bounded, named and non-disclosing, and **allowlisted**
   otherwise: a path is an unbounded namespace, so `path_status` acts only on paths listed in
   `[paths] allow` (empty by default) and returns metadata, never contents (see
@@ -73,7 +76,7 @@ graph.
 |---|---|---|
 | `gilfoyle-core` | domain types, ports, use cases | none |
 | `gilfoyle-system` | driven adapter (host uptime) | read-only |
-| `gilfoyle-host` | driven adapter (load, memory, disk usage) | read-only |
+| `gilfoyle-host` | driven adapter (load, memory, disk usage, reboot) | read-only |
 | `gilfoyle-path` | driven adapter (path metadata) | read-only |
 | `gilfoyle-systemd` | driven adapter (systemd over D-Bus) | system bus |
 | `gilfoyle-packagekit` | driven adapter (PackageKit over D-Bus) | system bus |
@@ -94,6 +97,7 @@ graph.
 
 - A Linux host with **systemd** and an accessible system D-Bus (needed by the unit tools).
 - `/proc/uptime`, `/proc/loadavg`, `/proc/meminfo` and `/proc/mounts` for the host tools.
+- `/etc/os-release` and the `/run/reboot-required` markers for `get_reboot_status`.
 - **polkit** (`polkitd`) — only to authorise `start_unit`/`stop_unit`. Reads need none.
 - **PackageKit** *and a backend* (APT on Debian/Ubuntu, DNF on Rocky) — only for the package
   tools. It is not installed by default on a minimal host; when absent the package tools
@@ -140,7 +144,7 @@ log_level = "info"                        # tracing filter, JSON logs on stderr
 [tools]
 enabled = [
   "get_uptime",
-  "get_load_and_memory", "get_disk_usage", "path_status",
+  "get_load_and_memory", "get_disk_usage", "get_reboot_status", "path_status",
   "list_units", "unit_status", "start_unit", "stop_unit",
   "list_packages", "list_updates", "preview_upgrade",
   "refresh_package_cache", "upgrade_packages",
@@ -293,6 +297,25 @@ because a `statvfs` on a stale network mount can block.
                      "inodes_free": 900000, "inodes_used_percent": 65.7, "error": null } ] }
 ```
 
+### `get_reboot_status`
+
+Reports whether the host needs a reboot. On **Debian/Ubuntu** hosts the verdict comes from
+the `/run/reboot-required` marker and the packages that asked for it are listed. Takes no
+arguments. Read-only and open.
+
+```json
+{ "required": true, "packages": ["linux-image-amd64", "libc6"], "origin": "debian" }
+```
+
+```json
+{ "required": null, "packages": [], "origin": "unsupported" }
+```
+
+On a Debian-family host without the marker, `required` is `false` and `packages` is empty.
+On any other distribution gilfoyle has no in-process mechanism, so `required` is `null` and
+`origin` is `"unsupported"` — unknown is never reported as `false` (see
+[docs/adr/0014](docs/adr/0014-reboot-required.md)).
+
 ### `path_status`
 
 Returns the metadata of one path (never the contents) — for example to check that a job
@@ -321,6 +344,8 @@ spawns `systemctl`.
 
 Unit names may be given short (`nginx`) or fully qualified (`nginx.service`).
 `start_unit` and `stop_unit` wait for the systemd job to finish and report its result.
+`unit_status` also reports `need_daemon_reload`: whether the unit's on-disk definition
+changed since systemd last loaded it, so a reload would pick up the new configuration.
 
 Mutations are **default-deny**: they act only on units listed in `[systemd] manage_units`,
 and polkit is the authority behind them. Reads may target any unit.
@@ -374,10 +399,11 @@ the action cannot target another container).
 ### Through the client
 
 The client adds a required `node` argument to every tool (a label, or `all` for the read
-tools `get_uptime`, `get_load_and_memory`, `get_disk_usage`, `path_status`, `list_units`,
-`unit_status`, `list_packages`, `list_updates`, `preview_upgrade`, `list_containers` and
-`container_status`). `all` returns a per-node map, with a per-node error for any node that
-failed. A `list_nodes` tool reports each node's label, reachability and exposed tools.
+tools `get_uptime`, `get_load_and_memory`, `get_disk_usage`, `get_reboot_status`,
+`path_status`, `list_units`, `unit_status`, `list_packages`, `list_updates`,
+`preview_upgrade`, `list_containers` and `container_status`). `all` returns a per-node map,
+with a per-node error for any node that failed. A `list_nodes` tool reports each node's
+label, reachability and exposed tools.
 
 ## Authorising unit control (polkit)
 
@@ -446,7 +472,9 @@ must not gain code execution or host privileges.
 - **No unbounded read.** A read that names an arbitrary path would be a metadata oracle
   over the whole filesystem. `path_status` therefore acts only on paths listed in
   `[paths] allow`, returns metadata and never contents, does not follow the final path
-  component, and reports a real error (not "absent") on anything but `ENOENT`.
+  component, and reports a real error (not "absent") on anything but `ENOENT`. The other
+  reads are open because they touch a fixed, well-known set of files — `/proc`, `/etc/os-release`
+  and the reboot markers under `/run` — and return no file contents.
 - **No install, no remove, by construction.** The package operation vocabulary is a closed
   enum with no install/remove variant; upgrades carry `ONLY_TRUSTED`, and a plan that would
   install or remove a package is refused. Docker has no create or remove operation at all.
@@ -469,6 +497,8 @@ requires a restart; OpenSSH certificates are not supported. The SSH transport ad
 pre-authentication parser surface and a C crypto backend (`ring`) — a deliberate trade.
 `path_status` discloses metadata (existence, size, owner, times) for the declared paths, a
 deliberate trade that keeps `[paths] allow` empty by default; keep it narrow.
+`get_reboot_status` discloses the distribution identity and the reboot state of the host,
+which is the point of the tool; on non-Debian hosts it reports `null` rather than guessing.
 
 ## Quality
 

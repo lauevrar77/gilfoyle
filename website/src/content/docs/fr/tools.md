@@ -14,6 +14,7 @@ Voici tout le vocabulaire. Si un outil n'est pas dans cette liste, il n'existe p
 | `get_uptime` | — | uptime de l'hôte depuis `/proc/uptime` (depuis le démarrage du noyau) |
 | `get_load_and_memory` | — | charge moyenne et mémoire (lecture) |
 | `get_disk_usage` | — | occupation des points de montage de `[host] disks` (lecture) |
+| `get_reboot_status` | — | si l'hôte a besoin d'un redémarrage (lecture) |
 
 ```json
 { "uptime_seconds": 1048545.67, "uptime_human": "12d 3h 15m 45s" }
@@ -23,6 +24,11 @@ Voici tout le vocabulaire. Si un outil n'est pas dans cette liste, il n'existe p
 configuré qui n'est pas actuellement dans `/proc/mounts` est rapporté `mounted: false`,
 jamais comme l'occupation du système de fichiers parent ; les systèmes de fichiers réseau
 sont rapportés comme non pris en charge plutôt que sondés.
+
+`get_reboot_status` indique si un redémarrage est en attente. Sur **Debian/Ubuntu** le verdict
+vient du marqueur `/run/reboot-required`, et les paquets qui l'ont demandé sont listés ;
+ailleurs `required` vaut `null` et `origin` vaut `"unsupported"` — l'inconnu n'est jamais
+rapporté comme `false`. La distribution est lue dans `/etc/os-release` (ADR 0014).
 
 ## Chemins
 
@@ -55,7 +61,8 @@ Joint via **D-Bus in-process** (`org.freedesktop.systemd1`) ; Gilfoyle ne lance 
 
 Les noms d'unités peuvent être donnés courts (`nginx`) ou pleinement qualifiés
 (`nginx.service`). `start_unit` et `stop_unit` attendent la fin de la tâche systemd et
-rapportent son résultat. Les mutations n'agissent que sur les unités listées dans
+rapportent son résultat. `unit_status` rapporte aussi `need_daemon_reload` : si la définition
+sur disque de l'unité a changé depuis que systemd l'a chargée. Les mutations n'agissent que sur les unités listées dans
 `[systemd] manage_units`, et polkit est l'autorité derrière elles.
 
 ## Conteneurs

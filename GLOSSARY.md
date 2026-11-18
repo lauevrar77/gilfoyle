@@ -80,6 +80,21 @@ The set of managed units. It is empty by default, so every start and stop is ref
 the operator opts in.
 _Avoid_: whitelist, permitted list
 
+## Maintenance
+
+**Reboot required**:
+The verdict that the host is running a kernel or core libraries older than the ones now
+installed, so a reboot is pending. It is a state of the host that gilfoyle reports, never an
+action it performs; on a host whose mechanism gilfoyle does not understand, the verdict is
+unknown, never "no".
+_Avoid_: restart needed, dirty
+
+**Daemon reload**:
+Letting the init system re-read its unit definitions after they changed on disk, so a unit
+picks up its new configuration without being restarted. A unit whose definition changed since
+it was last loaded is said to need a daemon reload.
+_Avoid_: config reload, re-read
+
 ## Packages
 
 **Package**:

@@ -21,7 +21,7 @@ log_level = "info"                        # tracing filter, JSON logs on stderr
 [tools]
 enabled = [
   "get_uptime",
-  "get_load_and_memory", "get_disk_usage", "path_status",
+  "get_load_and_memory", "get_disk_usage", "get_reboot_status", "path_status",
   "list_units", "unit_status", "start_unit", "stop_unit",
   "list_packages", "list_updates", "preview_upgrade",
   "refresh_package_cache", "upgrade_packages",

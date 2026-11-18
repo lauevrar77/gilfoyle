@@ -80,7 +80,8 @@ host_key = "/etc/gilfoyle/ssh_host_ed25519_key"
 # optional: max_connections, max_channels_per_connection, log_level
 
 [tools]
-enabled = ["get_uptime", "get_load_and_memory", "get_disk_usage", "path_status",
+enabled = ["get_uptime", "get_load_and_memory", "get_disk_usage", "get_reboot_status",
+           "path_status",
            "list_units", "unit_status", "start_unit", "stop_unit",
            "list_packages", "list_updates", "preview_upgrade",
            "refresh_package_cache", "upgrade_packages",

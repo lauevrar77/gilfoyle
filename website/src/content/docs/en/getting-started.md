@@ -13,9 +13,10 @@ Docker containers, and refreshing or upgrading allowlisted packages.
 
 It is built so that **it cannot execute anything**. There is no shell, no command
 passthrough and no scripting: every tool is a compiled function with fixed behaviour, and
-the only host interaction in the whole codebase is reading a few fixed `/proc` files, the
-mount table, one read-only `statvfs` syscall over the configured mounts, and the metadata of
-the paths the operator declared (never their contents).
+the only host interaction in the whole codebase is reading a few fixed files under `/proc`
+(`uptime`, `loadavg`, `meminfo`, `mounts`), the mount table, `/etc/os-release` and the
+reboot-required markers under `/run`, one read-only `statvfs` syscall over the configured
+mounts, and the metadata of the paths the operator declared (never their contents).
 
 ## Two roles
 
@@ -36,6 +37,7 @@ AI agent ──MCP(stdio)──▶ gilfoyle client ──SSH──▶ node @ hos
 
 - A Linux host with systemd and an accessible system D-Bus.
 - `/proc/uptime`, `/proc/loadavg`, `/proc/meminfo` and `/proc/mounts` for the host tools.
+- `/etc/os-release` and the `/run/reboot-required` markers for `get_reboot_status`.
 - polkit (`polkitd`) — only to authorise `start_unit` and `stop_unit`.
 - PackageKit and a backend (APT, DNF) — only for the package tools.
 - Docker — only for the container tools. When absent, the container tools report a clear

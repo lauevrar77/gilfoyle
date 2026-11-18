@@ -19,7 +19,9 @@ ni exécution de code ni privilèges sur l'hôte.
   de métadonnées sur tout le système de fichiers. Une lecture n'est donc ouverte que si elle
   est bornée, nommée et non divulgante ; `path_status` est allowlistée (`[paths] allow`, vide
   par défaut), renvoie des métadonnées et jamais le contenu, ne suit pas le dernier composant,
-  et renvoie une vraie erreur — pas « absent » — sur tout sauf `ENOENT`.
+  et renvoie une vraie erreur — pas « absent » — sur tout sauf `ENOENT`. Les autres lectures
+  portent sur un ensemble fixe et bien connu de fichiers (`/proc`, `/etc/os-release`, les
+  marqueurs de redémarrage sous `/run`) et ne renvoient aucun contenu de fichier.
 - **Ni installation, ni suppression, par construction.** Le vocabulaire des opérations sur les
   paquets est une énumération fermée, sans variante install/remove ; les mises à niveau
   portent `ONLY_TRUSTED`, et un plan qui installerait ou supprimerait un paquet est refusé.
@@ -46,6 +48,9 @@ ni exécution de code ni privilèges sur l'hôte.
 - Les certificats OpenSSH ne sont pas pris en charge.
 - `path_status` divulgue des métadonnées (existence, taille, propriétaire, dates) pour les
   chemins déclarés ; c'est délibéré, borné par `[paths] allow`, et désactivé par défaut.
+- `get_reboot_status` divulgue l'identité de distribution et l'état de redémarrage de l'hôte —
+  c'est le but de l'outil — et renvoie `null` sur les hôtes dont le mécanisme est inconnu de
+  Gilfoyle.
 
 Le transport SSH ajoute une surface de parseur avant authentification et un backend crypto C
 (`ring`) — un compromis assumé.
