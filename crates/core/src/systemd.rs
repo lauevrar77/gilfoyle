@@ -200,6 +200,10 @@ pub struct UnitStatus {
     pub can_start: Option<bool>,
     /// Whether the unit may currently be stopped.
     pub can_stop: Option<bool>,
+    /// Whether the unit's on-disk definition changed since systemd last loaded
+    /// it, so a `daemon-reload` would pick the change up. `None` when the
+    /// property could not be read.
+    pub need_daemon_reload: Option<bool>,
     /// Main process id, for service units that are running.
     pub main_pid: Option<u32>,
     /// Result of the unit's last run (`success`, `exit-code`, …).

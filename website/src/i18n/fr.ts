@@ -77,7 +77,7 @@ export const fr: Dict = {
     doTitle: "ce que je fais",
     refuseTitle: "ce que je refuse",
     do: [
-      { label: "lire", note: "uptime, charge, mémoire, disque, unités, conteneurs, paquets." },
+      { label: "lire", note: "uptime, charge, mémoire, disque, redémarrage, unités, conteneurs, paquets." },
       {
         label: "démarrer / arrêter / redémarrer",
         note: "seulement les unités et conteneurs que tu as autorisés",
@@ -271,7 +271,7 @@ export const fr: Dict = {
       },
     ],
     footnote:
-      "Je lis quelques fichiers /proc, la table des montages, un appel statvfs en lecture seule, et les métadonnées des chemins que tu déclares. systemd et PackageKit passent par le bus système et polkit décide. Docker passe par son socket, sans polkit.",
+      "Je lis quelques fichiers /proc, la table des montages, /etc/os-release et les marqueurs de redémarrage sous /run, un appel statvfs en lecture seule, et les métadonnées des chemins que tu déclares. systemd et PackageKit passent par le bus système et polkit décide. Docker passe par son socket, sans polkit.",
     docker: {
       title: "Docker n'a pas de polkit",
       body: "Le socket Docker vaut root : un conteneur privilégié peut monter l'hôte. Mets devant un proxy de socket qui n'autorise que les endpoints que j'utilise, plutôt que d'ajouter mon utilisateur au groupe docker. manage_containers est vide par défaut, et l'action porte sur l'id résolu du conteneur : un renommage ne peut pas la rediriger.",
@@ -293,7 +293,7 @@ export const fr: Dict = {
       },
       {
         title: "Fuzzing, sous ASan",
-        body: "Douze cibles couvrent les parseurs : uptime, charge moyenne, mémoire, montages, clés autorisées, config, config client, noms d'unités, ids de paquets, références de conteneurs, liste d'autorisation des conteneurs et des chemins. Elles tournent en nightly avec AddressSanitizer.",
+        body: "Treize cibles couvrent les parseurs : uptime, charge moyenne, mémoire, montages, clés autorisées, config, config client, noms d'unités, ids de paquets, références de conteneurs, liste d'autorisation des conteneurs, liste d'autorisation des chemins et marqueurs de redémarrage. Elles tournent en nightly avec AddressSanitizer.",
       },
       {
         title: "Chaîne d'approvisionnement",
@@ -324,7 +324,7 @@ export const fr: Dict = {
     groups: [
       {
         name: "Hôte",
-        note: "/proc, et un appel statvfs en lecture seule",
+        note: "/proc, /etc/os-release, /run, et un appel statvfs en lecture seule",
         items: [
           {
             name: "get_uptime",
@@ -342,6 +342,12 @@ export const fr: Dict = {
             name: "get_disk_usage",
             args: "—",
             effect: "occupation des points de montage configurés",
+            kind: "read",
+          },
+          {
+            name: "get_reboot_status",
+            args: "—",
+            effect: "si un redémarrage est en attente (famille Debian ; null ailleurs)",
             kind: "read",
           },
         ],
@@ -371,7 +377,7 @@ export const fr: Dict = {
           {
             name: "unit_status",
             args: "name",
-            effect: "état détaillé d'une unité",
+            effect: "état détaillé d'une unité, y compris si un rechargement est nécessaire",
             kind: "read",
           },
           {
@@ -493,7 +499,7 @@ export const fr: Dict = {
     crates: [
       { name: "gilfoyle-core", role: "types du domaine, ports, cas d'usage", io: "aucune" },
       { name: "gilfoyle-system", role: "adaptateur piloté (uptime de l'hôte)", io: "lecture seule" },
-      { name: "gilfoyle-host", role: "adaptateur piloté (charge, mémoire, disque)", io: "lecture seule" },
+      { name: "gilfoyle-host", role: "adaptateur piloté (charge, mémoire, disque, redémarrage)", io: "lecture seule" },
       { name: "gilfoyle-path", role: "adaptateur piloté (métadonnées de chemin)", io: "lecture seule" },
       { name: "gilfoyle-systemd", role: "adaptateur piloté (systemd via D-Bus)", io: "bus système" },
       { name: "gilfoyle-packagekit", role: "adaptateur piloté (PackageKit via D-Bus)", io: "bus système" },

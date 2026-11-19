@@ -168,6 +168,7 @@ fn status(name: &str) -> UnitStatus {
         unit_file_state: Some("enabled".to_string()),
         can_start: Some(true),
         can_stop: Some(true),
+        need_daemon_reload: Some(false),
         main_pid: Some(42),
         result: Some("success".to_string()),
         timestamps: UnitTimestamps {

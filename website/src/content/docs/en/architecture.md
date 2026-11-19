@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: Seven crates, and why dependencies only point inward.
+description: Ten crates, and why dependencies only point inward.
 order: 7
 lang: en
 ---
@@ -12,6 +12,8 @@ dependency graph is the enforcement.
 |---|---|---|
 | `gilfoyle-core` | domain types, ports, use cases | none |
 | `gilfoyle-system` | driven adapter (host uptime) | read-only |
+| `gilfoyle-host` | driven adapter (load, memory, disk usage, reboot) | read-only |
+| `gilfoyle-path` | driven adapter (path metadata) | read-only |
 | `gilfoyle-systemd` | driven adapter (systemd over D-Bus) | system bus |
 | `gilfoyle-packagekit` | driven adapter (PackageKit over D-Bus) | system bus |
 | `gilfoyle-docker` | driven adapter (Docker over its UNIX socket) | socket |
@@ -48,8 +50,9 @@ decisions live in pure, tested modules. The systemd and PackageKit adapters are 
 in-process mock buses, the Docker adapter by a mock HTTP server on a UNIX socket, and the SSH
 transport by an in-process `russh` client/server pair.
 
-Fuzzing (`make fuzz`) runs eight targets on nightly with AddressSanitizer: `uptime_parse`,
-`authorized_key`, `config_toml`, `client_config`, `unit_name`, `package_id`, `container_ref`
-and `container_allowlist`. `cargo-deny`
+Fuzzing (`make fuzz`) runs thirteen targets on nightly with AddressSanitizer: `uptime_parse`,
+`authorized_key`, `config_toml`, `client_config`, `unit_name`, `package_id`, `container_ref`,
+`container_allowlist`, `loadavg_parse`, `meminfo_parse`, `mounts_parse`, `path_allowlist` and
+`reboot_parse`. `cargo-deny`
 (`deny.toml`) denies unknown registries and git sources, keeps an empty advisory ignore list,
 and bans `openssl`.

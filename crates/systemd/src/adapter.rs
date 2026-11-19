@@ -222,6 +222,9 @@ impl ServiceCatalog for SystemdAdapter {
             .ok();
         let can_start = timed(self.call_timeout, unit, proxy.can_start()).await.ok();
         let can_stop = timed(self.call_timeout, unit, proxy.can_stop()).await.ok();
+        let need_daemon_reload = timed(self.call_timeout, unit, proxy.need_daemon_reload())
+            .await
+            .ok();
 
         let state_change = micros_to_rfc3339(
             timed(self.call_timeout, unit, proxy.state_change_timestamp()).await?,
@@ -260,6 +263,7 @@ impl ServiceCatalog for SystemdAdapter {
             unit_file_state,
             can_start,
             can_stop,
+            need_daemon_reload,
             main_pid,
             result,
             timestamps: UnitTimestamps {

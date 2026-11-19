@@ -17,11 +17,12 @@ mod host;
 mod packagekit;
 mod path;
 mod ports;
+mod reboot;
 mod systemd;
 
 pub use application::{
-    DiskService, DockerService, HostService, PackageService, PathService, SystemService,
-    SystemdService,
+    DiskService, DockerService, HostService, PackageService, PathService, RebootService,
+    SystemService, SystemdService,
 };
 pub use disk::{DiskUsage, FilesystemUsage, MountPoint, MountPoints};
 pub use docker::{
@@ -30,7 +31,8 @@ pub use docker::{
 };
 pub use domain::{Uptime, UptimeReport};
 pub use error::{
-    AppError, DiskError, DockerError, DomainError, PathError, SystemError, SystemdError,
+    AppError, DiskError, DockerError, DomainError, PathError, RebootError, SystemError,
+    SystemdError,
 };
 pub use host::{LoadAndMemory, LoadAverage, Memory};
 pub use packagekit::{
@@ -47,9 +49,10 @@ pub use packagekit::{
 pub use path::{PathAllowlist, PathKind, PathRef, PathStatus};
 pub use ports::{
     ContainerCatalog, ContainerControl, DiskAdmin, DiskSource, DockerAdmin, HostAdmin, LoadSource,
-    MemorySource, PackageAdmin, PackageManager, PathAdmin, PathSource, ServiceCatalog,
-    ServiceControl, SystemAdmin, SystemdAdmin, UptimeSource,
+    MemorySource, PackageAdmin, PackageManager, PathAdmin, PathSource, RebootAdmin, RebootSource,
+    ServiceCatalog, ServiceControl, SystemAdmin, SystemdAdmin, UptimeSource,
 };
+pub use reboot::{RebootOrigin, RebootStatus};
 pub use systemd::{
     Allowlist, JobResult, Unit, UnitActionOutcome, UnitFilter, UnitList, UnitName, UnitStatus,
     UnitTimestamps, UnitType, micros_to_rfc3339,

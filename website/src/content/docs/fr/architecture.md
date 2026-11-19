@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: Sept crates, et pourquoi les dépendances ne pointent que vers l'intérieur.
+description: Dix crates, et pourquoi les dépendances ne pointent que vers l'intérieur.
 order: 7
 lang: fr
 ---
@@ -12,6 +12,8 @@ le graphe de dépendances Cargo est l'application de la règle.
 |---|---|---|
 | `gilfoyle-core` | types du domaine, ports, cas d'usage | aucune |
 | `gilfoyle-system` | adaptateur piloté (uptime de l'hôte) | lecture seule |
+| `gilfoyle-host` | adaptateur piloté (charge, mémoire, disque, redémarrage) | lecture seule |
+| `gilfoyle-path` | adaptateur piloté (métadonnées de chemins) | lecture seule |
 | `gilfoyle-systemd` | adaptateur piloté (systemd via D-Bus) | bus système |
 | `gilfoyle-packagekit` | adaptateur piloté (PackageKit via D-Bus) | bus système |
 | `gilfoyle-docker` | adaptateur piloté (Docker via son socket UNIX) | socket |
@@ -52,8 +54,9 @@ adaptateurs systemd et PackageKit sont couverts par des bus simulés en processu
 Docker par un serveur HTTP simulé sur un socket UNIX, et le transport SSH par une paire
 client/serveur `russh` en processus.
 
-Le fuzzing (`make fuzz`) exécute huit cibles en nightly avec AddressSanitizer : `uptime_parse`,
-`authorized_key`, `config_toml`, `client_config`, `unit_name`, `package_id`, `container_ref`
-et `container_allowlist`. `cargo-deny`
+Le fuzzing (`make fuzz`) exécute treize cibles en nightly avec AddressSanitizer :
+`uptime_parse`, `authorized_key`, `config_toml`, `client_config`, `unit_name`, `package_id`,
+`container_ref`, `container_allowlist`, `loadavg_parse`, `meminfo_parse`, `mounts_parse`,
+`path_allowlist` et `reboot_parse`. `cargo-deny`
 (`deny.toml`) refuse les registres et sources git inconnus, garde une liste d'avis ignorés
 vide et bannit `openssl`.

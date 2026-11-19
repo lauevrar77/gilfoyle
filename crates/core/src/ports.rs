@@ -3,9 +3,10 @@ use async_trait::async_trait;
 use crate::{
     AppError, Container, ContainerActionOutcome, ContainerFilter, ContainerIdentity, ContainerRef,
     ContainerStatus, DiskError, DockerError, FilesystemUsage, LoadAndMemory, LoadAverage, Memory,
-    PackageError, PackageFilter, PackageList, PathError, PathRef, PathStatus, RefreshReport,
-    SystemError, SystemdError, Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus,
-    UpdateFilter, UpdateList, UpgradePlan, UpgradeReport, Uptime, UptimeReport,
+    PackageError, PackageFilter, PackageList, PathError, PathRef, PathStatus, RebootError,
+    RebootStatus, RefreshReport, SystemError, SystemdError, Unit, UnitActionOutcome, UnitFilter,
+    UnitName, UnitStatus, UpdateFilter, UpdateList, UpgradePlan, UpgradeReport, Uptime,
+    UptimeReport,
 };
 
 /// Outbound (driven) port: a source of host uptime.
@@ -73,6 +74,23 @@ pub trait PathSource: Send + Sync {
 pub trait PathAdmin: Send + Sync {
     /// Read the metadata of one allowed path.
     fn path_status(&self, path: &str) -> Result<PathStatus, AppError>;
+}
+
+/// Outbound (driven) port: whether the host needs a reboot.
+///
+/// Implemented by the reboot adapter in `gilfoyle-host`.
+pub trait RebootSource: Send + Sync {
+    /// Read whether the host reports a pending reboot.
+    fn reboot_status(&self) -> Result<RebootStatus, RebootError>;
+}
+
+/// Inbound (driving) port: the reboot verdict gilfoyle exposes.
+///
+/// The read is open: it touches only fixed, well-known files and discloses
+/// neither host contents nor configuration.
+pub trait RebootAdmin: Send + Sync {
+    /// Read whether the host reports a pending reboot, ready to be rendered.
+    fn reboot_status(&self) -> Result<RebootStatus, AppError>;
 }
 
 /// Outbound (driven) port: read-only access to systemd units.

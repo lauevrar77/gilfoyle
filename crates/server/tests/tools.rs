@@ -7,10 +7,10 @@ use async_trait::async_trait;
 use gilfoyle_core::{
     AppError, Container, ContainerActionOutcome, ContainerFilter, ContainerStatus, DiskAdmin,
     DockerAdmin, FilesystemUsage, HostAdmin, JobResult, LoadAndMemory, LoadAverage, Memory,
-    Package, PackageAdmin, PackageFilter, PackageList, PathAdmin, PathStatus, RefreshReport,
-    SystemAdmin, SystemError, SystemService, SystemdAdmin, SystemdError, Unit, UnitActionOutcome,
-    UnitFilter, UnitName, UnitStatus, UnitTimestamps, UpdateFilter, UpdateList, UpgradePlan,
-    UpgradeReport, Uptime, UptimeSource,
+    Package, PackageAdmin, PackageFilter, PackageList, PathAdmin, PathStatus, RebootAdmin,
+    RebootStatus, RefreshReport, SystemAdmin, SystemError, SystemService, SystemdAdmin,
+    SystemdError, Unit, UnitActionOutcome, UnitFilter, UnitName, UnitStatus, UnitTimestamps,
+    UpdateFilter, UpdateList, UpgradePlan, UpgradeReport, Uptime, UptimeSource,
 };
 use gilfoyle_server::GilfoyleServer;
 use gilfoyle_server::config::ALLOWLISTED_READS;
@@ -80,6 +80,7 @@ impl SystemdAdmin for FakeSystemd {
                 unit_file_state: Some("enabled".to_string()),
                 can_start: Some(true),
                 can_stop: Some(true),
+                need_daemon_reload: Some(false),
                 main_pid: Some(7),
                 result: Some("success".to_string()),
                 timestamps: UnitTimestamps {
@@ -240,6 +241,18 @@ impl DiskAdmin for FakeDisk {
     }
 }
 
+/// A stand-in for the reboot driving port.
+#[derive(Clone)]
+struct FakeReboot;
+
+impl RebootAdmin for FakeReboot {
+    fn reboot_status(&self) -> Result<RebootStatus, AppError> {
+        Ok(RebootStatus::required(vec![
+            "linux-image-amd64".to_string(),
+        ]))
+    }
+}
+
 /// A stand-in for the path metadata driving port.
 #[derive(Clone)]
 struct FakePaths;
@@ -258,11 +271,13 @@ async fn serve(
     let admin: Arc<dyn SystemAdmin> = Arc::new(SystemService::new(FixedSource(3661.0)));
     let host: Arc<dyn HostAdmin> = Arc::new(FakeHost);
     let disk: Arc<dyn DiskAdmin> = Arc::new(FakeDisk);
+    let reboot: Arc<dyn RebootAdmin> = Arc::new(FakeReboot);
     let paths: Arc<dyn PathAdmin> = Arc::new(FakePaths);
     let handler = GilfoyleServer::new(
         admin,
         host,
         disk,
+        reboot,
         paths,
         Arc::new(systemd),
         Arc::new(FakePackage),
@@ -307,6 +322,7 @@ async fn lists_every_tool_and_serves_uptime() {
             "container_status".to_string(),
             "get_disk_usage".to_string(),
             "get_load_and_memory".to_string(),
+            "get_reboot_status".to_string(),
             "get_uptime".to_string(),
             "list_containers".to_string(),
             "list_packages".to_string(),
@@ -379,6 +395,7 @@ async fn every_tool_is_classified() {
         "get_uptime",
         "get_load_and_memory",
         "get_disk_usage",
+        "get_reboot_status",
         "list_units",
         "unit_status",
         "list_packages",
@@ -648,4 +665,18 @@ async fn docker_mutations_report_the_outcome_and_refuse_unmanaged() {
         .await
         .unwrap();
     assert_eq!(result.is_error, Some(true));
+}
+
+#[tokio::test]
+async fn reports_the_reboot_status() {
+    let client = serve(FakeSystemd::default(), FakeDocker::default(), None).await;
+    let result = client
+        .peer()
+        .call_tool(call("get_reboot_status", json!({})))
+        .await
+        .unwrap();
+    let value = result.structured_content.unwrap();
+    assert_eq!(value["required"], true);
+    assert_eq!(value["origin"], "debian");
+    assert_eq!(value["packages"][0], "linux-image-amd64");
 }

@@ -23,6 +23,7 @@ The classification is frozen:
 | `get_uptime` | open | one number |
 | `get_load_and_memory` | open | bounded metrics |
 | `get_disk_usage` | open | configured mounts, sizes only |
+| `get_reboot_status` | open | two fixed files; the package list, never file contents |
 | `list_units`, `unit_status` | open | a named, enumerable set |
 | `list_packages`, `list_updates`, `preview_upgrade` | open | a named, enumerable set |
 | `list_containers`, `container_status` | open | a named, enumerable set |

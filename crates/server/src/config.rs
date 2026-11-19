@@ -36,10 +36,11 @@ pub const DEFAULT_DOCKER_STOP_TIMEOUT_SECONDS: u64 = 30;
 pub const DEFAULT_DOCKER_LIMIT: usize = 100;
 
 /// Every tool a node can expose.
-pub const KNOWN_TOOLS: [&str; 18] = [
+pub const KNOWN_TOOLS: [&str; 19] = [
     "get_uptime",
     "get_load_and_memory",
     "get_disk_usage",
+    "get_reboot_status",
     "path_status",
     "list_units",
     "unit_status",

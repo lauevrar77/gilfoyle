@@ -157,6 +157,19 @@ pub enum DiskError {
     Malformed(String),
 }
 
+/// Errors raised by the reboot adapter.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum RebootError {
+    /// A fixed host file could not be read for a reason other than absence.
+    #[error("failed to read {path}: {message}")]
+    Io {
+        /// The path that could not be read.
+        path: String,
+        /// The underlying error.
+        message: String,
+    },
+}
+
 /// Errors raised by the path adapter.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum PathError {
@@ -206,4 +219,7 @@ pub enum AppError {
     /// A path metadata probe failed.
     #[error(transparent)]
     Path(#[from] PathError),
+    /// A reboot probe failed.
+    #[error(transparent)]
+    Reboot(#[from] RebootError),
 }

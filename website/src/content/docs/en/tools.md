@@ -14,6 +14,7 @@ This is the whole vocabulary. If a tool is not on this list, it does not exist.
 | `get_uptime` | — | host uptime from `/proc/uptime` (since kernel boot) |
 | `get_load_and_memory` | — | load average and memory usage (read-only) |
 | `get_disk_usage` | — | usage of the mount points in `[host] disks` (read-only) |
+| `get_reboot_status` | — | whether the host needs a reboot (read-only) |
 
 ```json
 { "uptime_seconds": 1048545.67, "uptime_human": "12d 3h 15m 45s" }
@@ -23,6 +24,11 @@ This is the whole vocabulary. If a tool is not on this list, it does not exist.
 that is not currently in `/proc/mounts` is reported as `mounted: false`, never as the
 parent filesystem's usage; network filesystems are reported as unsupported rather than
 probed.
+
+`get_reboot_status` reports whether a reboot is pending. On **Debian/Ubuntu** the verdict
+comes from the `/run/reboot-required` marker, and the packages that asked for it are listed;
+elsewhere `required` is `null` and `origin` is `"unsupported"` — unknown is never reported
+as `false`. The distribution is read from `/etc/os-release` (ADR 0014).
 
 ## Paths
 
@@ -54,7 +60,9 @@ Reached over **in-process D-Bus** (`org.freedesktop.systemd1`); Gilfoyle never s
 | `stop_unit` | `name` | stop a **managed** unit |
 
 Unit names may be given short (`nginx`) or fully qualified (`nginx.service`). `start_unit`
-and `stop_unit` wait for the systemd job to finish and report its result. Mutations act only
+and `stop_unit` wait for the systemd job to finish and report its result. `unit_status` also
+reports `need_daemon_reload`: whether the unit's on-disk definition changed since systemd
+last loaded it. Mutations act only
 on units listed in `[systemd] manage_units`, and polkit is the authority behind them.
 
 ## Containers
